@@ -525,25 +525,34 @@ class LatexTranslator:
         text = re.sub(r'\\end{CJK\*}', '', text)
         return text
 
-    def _is_boundary_line(self, line_text: str) -> bool:
-        """문단 또는 구조적 경계인지 판단"""
+    def _is_section_boundary(self, line_text: str) -> bool:
+        """섹션 경계인지 판단 (강제 분할 지점)"""
         stripped = line_text.strip()
-        # 빈 줄 (문단 경계)
+        return bool(re.match(r'\\(section|subsection|subsubsection|chapter|part)\b', stripped))
+
+    def _is_paragraph_boundary(self, line_text: str) -> bool:
+        """문단 경계인지 판단 (선호 분할 지점)"""
+        stripped = line_text.strip()
         if not stripped:
             return True
-        # LaTeX 구조 명령어
         if re.match(r'\\(section|subsection|subsubsection|chapter|part|paragraph)\b', stripped):
             return True
-        # 환경 종료
         if re.match(r'\\end\{', stripped):
+            return True
+        if re.match(r'\\(vspace|bigskip|medskip|smallskip)\b', stripped):
+            return True
+        if re.match(r'\\noindent\\textbf\{', stripped):
             return True
         return False
 
     def chunk_lines(self, lines: list[tuple[int, str]]) -> list[list[tuple[int, str]]]:
-        """줄을 청크로 분할 (문단 경계 우선)
+        """줄을 문단 기반으로 동적 분할
 
-        chunk_size에 도달하면 가장 가까운 문단 경계에서 분할합니다.
-        경계를 찾지 못하면 chunk_size * 1.2에서 강제 분할합니다.
+        1단계: 문단 그룹으로 분리 (빈 줄, 섹션 명령어 등 기준)
+        2단계: 문단 그룹을 chunk_size 이내로 병합
+
+        이렇게 하면 문장이 중간에 잘리지 않고,
+        LLM이 완전한 문단 단위로 번역할 수 있습니다.
 
         Args:
             lines: (line_id, line_text) 튜플 리스트
@@ -551,24 +560,62 @@ class LatexTranslator:
         Returns:
             청크 리스트 (각 청크는 (line_id, line_text) 튜플의 리스트)
         """
-        chunks = []
-        current_chunk = []
-        max_chunk_size = int(self.chunk_size * 1.2)  # 경계 탐색 여유분
+        # 1단계: 문단 그룹으로 분리
+        paragraphs = []
+        current_para = []
 
         for line in lines:
-            current_chunk.append(line)
+            # 섹션 경계는 새 문단 시작 (이전 문단 먼저 저장)
+            if self._is_section_boundary(line[1]) and current_para:
+                paragraphs.append(current_para)
+                current_para = []
 
-            if len(current_chunk) >= self.chunk_size:
-                # 문단 경계에서 분할 시도
-                if self._is_boundary_line(line[1]) or len(current_chunk) >= max_chunk_size:
+            current_para.append(line)
+
+            # 문단 경계에서 분리
+            if self._is_paragraph_boundary(line[1]):
+                paragraphs.append(current_para)
+                current_para = []
+
+        if current_para:
+            paragraphs.append(current_para)
+
+        # 2단계: 문단 그룹을 chunk_size 이내로 병합
+        # 섹션 경계에서는 반드시 새 청크 시작
+        chunks = []
+        current_chunk = []
+
+        for para in paragraphs:
+            # 섹션 경계 문단이면 이전 청크를 강제 마감
+            starts_with_section = para and self._is_section_boundary(para[0][1])
+            if starts_with_section and current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = []
+
+            # 이 문단을 추가하면 chunk_size 초과하는 경우
+            if current_chunk and len(current_chunk) + len(para) > self.chunk_size:
+                chunks.append(current_chunk)
+                current_chunk = []
+
+            # 단일 문단이 chunk_size보다 큰 경우 (긴 문단)
+            if len(para) > self.chunk_size:
+                if current_chunk:
                     chunks.append(current_chunk)
                     current_chunk = []
+                chunks.append(para)
+            else:
+                current_chunk.extend(para)
 
-        # 남은 줄 추가
         if current_chunk:
             chunks.append(current_chunk)
 
-        logger.info(f"총 {len(chunks)}개 청크 생성 (청크 크기: {self.chunk_size}, 경계 분할 적용)")
+        # 통계 로그
+        chunk_sizes = [len(c) for c in chunks]
+        logger.info(
+            f"총 {len(chunks)}개 청크 생성 (문단 기반 동적 분할, "
+            f"크기: {min(chunk_sizes)}~{max(chunk_sizes)}줄, "
+            f"평균: {sum(chunk_sizes)/len(chunk_sizes):.0f}줄)"
+        )
         return chunks
 
     def translate_chunk(
