@@ -367,6 +367,10 @@ PDF는 정상 생성되지만 경고가 표시될 수 있습니다:
 - **Citation undefined**: 1차 컴파일에서 발생하며 2차 컴파일에서 해결됩니다
 - **Missing $**: LLM 번역 시 간헐적으로 발생하는 수식 구조 오류 (PDF 생성에 영향 미미)
 
+## 크레딧
+
+이 프로젝트는 [GENEXIS-AI/arXiv-PDF-Translator](https://github.com/GENEXIS-AI/arXiv-PDF-Translator)를 참조하여 개선한 프로젝트입니다.
+
 ## 라이선스
 
 MIT License
