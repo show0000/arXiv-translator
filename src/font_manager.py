@@ -239,10 +239,9 @@ class FontManager:
             logger.error(f"폰트 설정 생성 실패: {e}")
             raise
 
-        # CJK 충돌 방지를 위한 안전한 폰트 설정
+        # XeLaTeX 전용 폰트 설정 (kotex 제거, xeCJK만 사용하여 충돌 방지)
         font_config = f"""
-% Korean font configuration
-\\usepackage{{kotex}}
+% Korean font configuration (XeLaTeX + xeCJK)
 \\usepackage{{xeCJK}}
 \\setCJKmainfont{{{main_font}}}[
     BoldFont={{{main_font}}},
@@ -263,13 +262,6 @@ class FontManager:
     FakeBold=1.5
 ]
 \\xeCJKsetup{{CJKspace=true}}
-% Suppress font shape warnings
-\\newfontfamily\\koreanfont{{{main_font}}}[
-    BoldFont={{{main_font}}},
-    ItalicFont={{{main_font}}},
-    FakeSlant=0.2,
-    FakeBold=1.5
-]
 """
 
         logger.info(f"LaTeX 폰트 설정 생성 완료 (main: {main_font}, mono: {mono_font})")
