@@ -75,40 +75,64 @@ class LatexCompiler:
 
         return None
 
-    def remove_cjk_packages(self, tex_file: Path) -> None:
-        """CJK 관련 패키지 제거 (충돌 방지)
+    def remove_conflicting_packages(self, tex_file: Path) -> None:
+        """XeLaTeX과 충돌하는 패키지 제거
+
+        CJK 패키지, inputenc, fontenc 등 XeLaTeX에서 불필요하거나 충돌하는
+        패키지를 제거합니다.
 
         Args:
             tex_file: .tex 파일 경로
         """
-        logger.debug(f"CJK 패키지 제거: {tex_file}")
+        logger.debug(f"충돌 패키지 제거: {tex_file}")
 
-        cjk_keywords = [
+        # 제거할 패키지/명령어 키워드
+        conflict_keywords = [
+            # CJK 관련
             r'\usepackage{CJKutf8}',
-            r'\usepackage{kotex}',  # 우리가 추가할 것이므로 기존 것 제거
+            r'\usepackage{kotex}',
             r'\begin{CJK}',
             r'\end{CJK}',
             r'\CJKfamily',
             r'\CJK@',
+            # XeLaTeX과 충돌하는 인코딩 패키지
+            r'\usepackage[utf8]{inputenc}',
+            r'\usepackage[utf-8]{inputenc}',
+            r'\usepackage{inputenc}',
+            r'\usepackage[T1]{fontenc}',
+            r'\usepackage[T2A]{fontenc}',
+            r'\usepackage{fontenc}',
+        ]
+
+        # 정규식 패턴으로도 매칭 (옵션이 다를 수 있으므로)
+        conflict_patterns = [
+            re.compile(r'\\usepackage(\[.*?\])?\{inputenc\}'),
+            re.compile(r'\\usepackage(\[.*?\])?\{fontenc\}'),
         ]
 
         try:
             with open(tex_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
 
-            # CJK 관련 줄 제거
-            new_lines = [
-                line for line in lines
-                if not any(keyword in line for keyword in cjk_keywords)
-            ]
+            new_lines = []
+            for line in lines:
+                # 키워드 매칭
+                if any(keyword in line for keyword in conflict_keywords):
+                    logger.debug(f"  제거: {line.strip()}")
+                    continue
+                # 정규식 매칭
+                if any(pattern.search(line) for pattern in conflict_patterns):
+                    logger.debug(f"  제거: {line.strip()}")
+                    continue
+                new_lines.append(line)
 
             with open(tex_file, 'w', encoding='utf-8') as f:
                 f.writelines(new_lines)
 
-            logger.debug("CJK 패키지 제거 완료")
+            logger.debug("충돌 패키지 제거 완료")
 
         except Exception as e:
-            logger.error(f"CJK 패키지 제거 실패: {e}")
+            logger.error(f"충돌 패키지 제거 실패: {e}")
             raise
 
     def add_font_configuration(
@@ -126,8 +150,8 @@ class LatexCompiler:
         """
         logger.info(f"폰트 설정 추가: {tex_file}")
 
-        # CJK 패키지 제거
-        self.remove_cjk_packages(tex_file)
+        # XeLaTeX 충돌 패키지 제거
+        self.remove_conflicting_packages(tex_file)
 
         # 폰트 설정 생성
         font_config = self.font_manager.generate_latex_font_config(
