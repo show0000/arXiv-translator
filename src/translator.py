@@ -1085,6 +1085,29 @@ class LatexTranslator:
                 # 번역 불필요한 라인은 원본 그대로
                 result_lines.append(original_line)
 
+        # 원문 유지된 긴 줄을 개별 번역 시도 (LLM이 긴 줄 ID를 누락하는 문제 대응)
+        MIN_RETRY_LENGTH = 200  # 이 길이 이상인 원문 유지 줄만 재시도
+        for idx, result_line in enumerate(result_lines):
+            orig_idx, original_line, should_translate, trans_id = line_info[idx]
+            if should_translate and result_line == original_line and len(original_line) > MIN_RETRY_LENGTH:
+                logger.info(f"  긴 줄 {orig_idx} ({len(original_line)}자) 개별 번역 시도...")
+                try:
+                    single_chunk = [(0, original_line)]
+                    single_result = self.translate_chunk(single_chunk, paper_info)
+                    if 0 in single_result:
+                        new_text = single_result[0]
+                        # 검증
+                        orig_depth = original_line.count('{') - original_line.count('}')
+                        new_depth = new_text.count('{') - new_text.count('}')
+                        if orig_depth == new_depth:
+                            if not new_text.endswith('\n'):
+                                new_text += '\n'
+                            result_lines[idx] = new_text
+                            fallback_count -= 1
+                            logger.info(f"  ✓ 긴 줄 {orig_idx} 번역 성공")
+                except Exception:
+                    pass  # 실패 시 원문 유지
+
         # 번역 완전성 리포트
         if fallback_count > 0:
             logger.warning(
