@@ -123,12 +123,23 @@ class LatexContentFilter:
             return False
 
         # LaTeX 명령어만 있는 라인 (번역할 텍스트가 없음)
-        # 명령어와 특수문자를 제거하고 남은 텍스트 확인
-        text_only = re.sub(r'\\[a-zA-Z]+(\[.*?\])?(\{[^}]*\})*', '', line)
-        text_only = re.sub(r'[{}%$\\]', '', text_only).strip()
+        # 전략: 번역 불필요한 명령어(\label, \usepackage, \ref 등)를 통째로 제거하고,
+        #       번역 필요한 명령어(\textbf 등)는 이름만 제거하여 인자 텍스트를 보존
+        non_translatable_cmds = (
+            r'\\(?:label|ref|eqref|cref|cite|citep|citet|bibliography|bibliographystyle'
+            r'|usepackage|RequirePackage|input|include|includegraphics'
+            r'|documentclass|setlength|setcounter|newcommand|renewcommand'
+            r'|def|let|vspace|hspace|vskip|hskip|phantom|vphantom|hphantom'
+            r'|rule|url|href|hyperref|pageref|footnoteref)(?:\[.*?\])?(?:\{[^}]*\})*'
+        )
+        text_check = re.sub(non_translatable_cmds, '', line)
+        # 번역 대상 명령어는 이름만 제거 (인자 텍스트 보존)
+        text_check = re.sub(r'\\[a-zA-Z]+', '', text_check)
+        # 특수문자, 숫자만 있는 잔여물 제거
+        text_check = re.sub(r'[{}%$\\\[\]*=.,;:0-9]', '', text_check).strip()
 
-        # 의미있는 텍스트가 없으면 건너뛰기
-        if len(text_only) < 2:
+        # 의미있는 텍스트(공백 포함 2자 이상의 단어)가 없으면 건너뛰기
+        if len(text_check) < 2:
             return False
 
         return True
