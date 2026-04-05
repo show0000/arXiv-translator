@@ -305,7 +305,16 @@ class LatexCompiler:
             logger.error("메인 .tex 파일을 찾을 수 없습니다.")
             return None
 
-        # 폰트 설정 추가
+        # 모든 .tex 파일에서 충돌 패키지 제거 (서브 파일 포함)
+        all_tex_files = [
+            f for f in directory.rglob("*.tex")
+            if "_original" not in f.name
+        ]
+        for tex_file in all_tex_files:
+            if tex_file != main_tex:
+                self.remove_conflicting_packages(tex_file)
+
+        # 메인 파일에 폰트 설정 추가 (내부에서 충돌 패키지 제거 포함)
         self.add_font_configuration(main_tex, main_font, mono_font)
 
         # 컴파일
