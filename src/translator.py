@@ -29,14 +29,18 @@ class LatexContentFilter:
     """LaTeX 파일에서 번역 가능한 콘텐츠만 필터링"""
 
     def __init__(self):
-        # 번역 제외 환경 (수학, 코드, 표 등)
+        # 번역 제외 환경 (수학, 코드 등)
+        # 주의: figure, table은 캡션 번역을 위해 제외하지 않음
         self.skip_environments = [
             'equation', 'equation*', 'align', 'align*', 'gather', 'gather*',
             'multline', 'multline*', 'eqnarray', 'eqnarray*',
             'lstlisting', 'verbatim', 'verbatim*', 'minted',
             'tikzpicture', 'algorithm', 'algorithmic',
-            'tabular', 'tabularx', 'table', 'figure'
+            'tabular', 'tabularx',
         ]
+
+        # figure/table 내부에서 캡션만 번역하고 나머지는 건너뛰는 환경
+        self.caption_environments = ['figure', 'figure*', 'table', 'table*']
 
         # 번역 대상 명령어 (인자를 번역해야 하는 명령어)
         self.translatable_commands = [
@@ -106,6 +110,12 @@ class LatexContentFilter:
 
         # 번역 제외 환경 내부인 경우
         if self.env_stack and self.env_stack[-1] in self.skip_environments:
+            return False
+
+        # figure/table 내부: 캡션(\caption{...})이 포함된 줄만 번역
+        if self.env_stack and any(env in self.caption_environments for env in self.env_stack):
+            if re.search(r'\\caption(\[.*?\])?\{', stripped):
+                return True
             return False
 
         # 인라인 수학 모드 체크 ($ ... $ 또는 \[ ... \])
