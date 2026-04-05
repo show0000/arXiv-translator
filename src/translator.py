@@ -38,8 +38,8 @@ class LatexContentFilter:
             'multline', 'multline*', 'eqnarray', 'eqnarray*',
             'lstlisting', 'verbatim', 'verbatim*', 'minted',
             'tikzpicture', 'algorithm', 'algorithmic',
-            'figure', 'figure*',
-            'tcolorbox',
+            'figure', 'figure*', 'subfigure',
+            'tcolorbox', 'tcb@savebox',
         ]
 
         # 번역 대상 명령어 (인자를 번역해야 하는 명령어)
@@ -869,7 +869,9 @@ class LatexTranslator:
                 new_text = translated.get(i, original_text)
                 # 수식 플레이스홀더 복원 후 줄바꿈 정리
                 new_text = self._restore_latex(new_text, all_placeholders).strip()
-                # 중괄호 균형 검증 — 불균형이면 원문 유지
+                # 안전성 검증
+                safe = True
+                # 1. 중괄호 균형
                 brace_depth = 0
                 for ch in new_text:
                     if ch == '{':
@@ -878,6 +880,13 @@ class LatexTranslator:
                         brace_depth -= 1
                 if brace_depth != 0:
                     logger.warning(f"⚠ 캡션 {i} 중괄호 불균형 (depth={brace_depth}) — 원문 유지")
+                    safe = False
+                # 2. 환경 명령어 혼입 검증 (캡션 안에 \begin/\end가 있으면 위험)
+                if r'\begin{' in new_text or r'\end{' in new_text:
+                    if r'\begin{' not in original_text:
+                        logger.warning(f"⚠ 캡션 {i} 환경 명령어 혼입 — 원문 유지")
+                        safe = False
+                if not safe:
                     new_text = original_text
                 content = content[:start] + new_text + content[end:]
 
