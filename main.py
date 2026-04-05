@@ -207,7 +207,8 @@ def main(
         translator = LatexTranslator(
             provider=llm_provider,
             target_language=translation_config.target_language,
-            custom_instruction=translation_config.custom_instruction
+            custom_instruction=translation_config.custom_instruction,
+            dynamic_chunking=translation_config.dynamic_chunking
         )
 
         # 번역 실행

@@ -24,6 +24,7 @@ class TranslationConfig:
 
     # 번역 설정
     target_language: str = "Korean"
+    dynamic_chunking: bool = True
     custom_instruction: Optional[str] = None
     custom_instruction_file: Optional[str] = None
 

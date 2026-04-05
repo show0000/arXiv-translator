@@ -7,6 +7,7 @@ api_key: null     # API 키 (또는 환경변수 OPENAI_API_KEY, ANTHROPIC_API_K
 
 # 번역 설정
 target_language: Korean
+dynamic_chunking: true       # true: 문단 기반 동적 분할, false: 전체 tex 한번에 번역
 custom_instruction: null     # 추가 번역 지침
 custom_instruction_file: null  # 추가 번역 지침 파일 경로
 

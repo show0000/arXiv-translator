@@ -6,6 +6,7 @@ LLM API를 사용하여 LaTeX 문서를 번역하면서 구조와 형식을 보�
 import json
 import logging
 import re
+import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -541,11 +542,13 @@ class LatexTranslator:
         self,
         provider: LLMProvider,
         target_language: str = "Korean",
-        custom_instruction: Optional[str] = None
+        custom_instruction: Optional[str] = None,
+        dynamic_chunking: bool = True
     ):
         self.provider = provider
         self.target_language = target_language
         self.custom_instruction = custom_instruction
+        self.dynamic_chunking = dynamic_chunking
         self.content_filter = LatexContentFilter()
     _math_counter = 0  # 클래스 레벨 카운터로 청크 내 고유 ID 보장
 
@@ -939,14 +942,24 @@ class LatexTranslator:
 
         logger.info(f"📊 번역 통계: 전체 {total_lines}줄 중 {translatable_count}줄 번역 ({translatable_count*100//total_lines}%)")
 
-        # 번역 대상 라인을 청크로 분할
-        chunks = self.chunk_lines(translatable_lines_with_id)
+        # 청크 분할
+        if self.dynamic_chunking:
+            chunks = self.chunk_lines(translatable_lines_with_id)
+        else:
+            # 전체를 하나의 청크로
+            chunks = [translatable_lines_with_id]
+            logger.info(f"전체 {translatable_count}줄을 단일 청크로 번역")
 
         # 번역 (순차 처리) - 결과는 {id: translated_text} 딕셔너리
         all_translations = {}
-        for i, chunk in enumerate(chunks):
-            logger.info(f"청크 {i+1}/{len(chunks)} 번역 중...")
+        total_chunks = len(chunks)
 
+        # 진행률 표시 초기화
+        if total_chunks > 1:
+            sys.stdout.write(f"\r  번역 진행: [{'·' * total_chunks}] 0/{total_chunks}")
+            sys.stdout.flush()
+
+        for i, chunk in enumerate(chunks):
             try:
                 translated_dict = self.translate_chunk(chunk, paper_info)
 
@@ -973,6 +986,17 @@ class LatexTranslator:
                 # 실패 시 원문 유지
                 for line_id, line_text in chunk:
                     all_translations[line_id] = line_text
+
+            # 진행률 업데이트
+            if total_chunks > 1:
+                done = i + 1
+                bar = '━' * done + '·' * (total_chunks - done)
+                sys.stdout.write(f"\r  번역 진행: [{bar}] {done}/{total_chunks}")
+                sys.stdout.flush()
+
+        if total_chunks > 1:
+            sys.stdout.write('\n')
+            sys.stdout.flush()
 
         # 최종 결과 조립 (ID 기반)
         result_lines = []
