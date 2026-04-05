@@ -474,8 +474,25 @@ class LatexTranslator:
         text = re.sub(r'\\end{CJK\*}', '', text)
         return text
 
+    def _is_boundary_line(self, line_text: str) -> bool:
+        """문단 또는 구조적 경계인지 판단"""
+        stripped = line_text.strip()
+        # 빈 줄 (문단 경계)
+        if not stripped:
+            return True
+        # LaTeX 구조 명령어
+        if re.match(r'\\(section|subsection|subsubsection|chapter|part|paragraph)\b', stripped):
+            return True
+        # 환경 종료
+        if re.match(r'\\end\{', stripped):
+            return True
+        return False
+
     def chunk_lines(self, lines: list[tuple[int, str]]) -> list[list[tuple[int, str]]]:
-        """줄을 청크로 분할
+        """줄을 청크로 분할 (문단 경계 우선)
+
+        chunk_size에 도달하면 가장 가까운 문단 경계에서 분할합니다.
+        경계를 찾지 못하면 chunk_size * 1.2에서 강제 분할합니다.
 
         Args:
             lines: (line_id, line_text) 튜플 리스트
@@ -485,19 +502,22 @@ class LatexTranslator:
         """
         chunks = []
         current_chunk = []
+        max_chunk_size = int(self.chunk_size * 1.2)  # 경계 탐색 여유분
 
         for line in lines:
             current_chunk.append(line)
 
             if len(current_chunk) >= self.chunk_size:
-                chunks.append(current_chunk)
-                current_chunk = []
+                # 문단 경계에서 분할 시도
+                if self._is_boundary_line(line[1]) or len(current_chunk) >= max_chunk_size:
+                    chunks.append(current_chunk)
+                    current_chunk = []
 
         # 남은 줄 추가
         if current_chunk:
             chunks.append(current_chunk)
 
-        logger.info(f"총 {len(chunks)}개 청크 생성 (청크 크기: {self.chunk_size})")
+        logger.info(f"총 {len(chunks)}개 청크 생성 (청크 크기: {self.chunk_size}, 경계 분할 적용)")
         return chunks
 
     def translate_chunk(
