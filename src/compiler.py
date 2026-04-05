@@ -164,10 +164,17 @@ class LatexCompiler:
                 lines = f.readlines()
 
             # \\documentclass 다음에 폰트 설정 삽입
+            # 들여쓰기된 경우(\ifnum 조건문 등)도 매칭
+            inserted = False
             for i, line in enumerate(lines):
-                if line.startswith(r'\documentclass'):
+                if r'\documentclass' in line and not line.strip().startswith('%'):
                     lines.insert(i + 1, font_config + '\n')
+                    inserted = True
                     break
+
+            if not inserted:
+                logger.warning("⚠ \\documentclass를 찾지 못함 — 파일 시작에 폰트 설정 삽입")
+                lines.insert(0, font_config + '\n')
 
             with open(tex_file, 'w', encoding='utf-8') as f:
                 f.writelines(lines)
