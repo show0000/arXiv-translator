@@ -2,12 +2,12 @@
 
 # LLM 설정
 provider: openai  # openai 또는 claude
-model: gpt-5-nano     # gpt-4, gpt-3.5-turbo, claude-3-5-sonnet-20241022 등
+model: gpt-5.4-nano     # gpt-4, gpt-3.5-turbo, claude-3-5-sonnet-20241022 등
 api_key: null     # API 키 (또는 환경변수 OPENAI_API_KEY, ANTHROPIC_API_KEY 사용)
 
 # 번역 설정
 target_language: Korean
-chunk_size: 100              # 한 번에 번역할 줄 수
+chunk_size: 50               # 한 번에 번역할 줄 수 (권장: 30~50)
 max_workers: 8               # 병렬 처리 워커 수
 custom_instruction: null     # 추가 번역 지침
 custom_instruction_file: null  # 추가 번역 지침 파일 경로
