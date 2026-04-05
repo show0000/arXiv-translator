@@ -180,6 +180,11 @@ class LatexContentFilter:
 class LLMProvider(ABC):
     """LLM 제공자 추상 클래스"""
 
+    def __init__(self):
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_requests = 0
+
     @abstractmethod
     def translate(
         self,
@@ -201,15 +206,34 @@ class LLMProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_model_name(self) -> str:
+        """사용 모델명 반환"""
+        pass
+
+    def get_usage_summary(self) -> dict:
+        """토큰 사용량 요약 반환"""
+        return {
+            "model": self.get_model_name(),
+            "total_requests": self.total_requests,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_tokens": self.total_input_tokens + self.total_output_tokens,
+        }
+
 
 class OpenAIProvider(LLMProvider):
     """OpenAI API 제공자"""
 
     def __init__(self, api_key: str, model: str = "gpt-4"):
+        super().__init__()
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key)
         self.model = model
         logger.info(f"OpenAI Provider 초기화: {model}")
+
+    def get_model_name(self) -> str:
+        return f"OpenAI/{self.model}"
 
     def translate(
         self,
@@ -236,6 +260,12 @@ class OpenAIProvider(LLMProvider):
                         {"role": "user", "content": text}
                     ]
                 )
+
+                # 토큰 사용량 수집
+                if response.usage:
+                    self.total_input_tokens += response.usage.prompt_tokens
+                    self.total_output_tokens += response.usage.completion_tokens
+                    self.total_requests += 1
 
                 translated_content = response.choices[0].message.content
                 translation_result = json.loads(translated_content)
@@ -378,10 +408,14 @@ class ClaudeProvider(LLMProvider):
     """Anthropic Claude API 제공자"""
 
     def __init__(self, api_key: str, model: str = "claude-3-5-sonnet-20241022"):
+        super().__init__()
         from anthropic import Anthropic
         self.client = Anthropic(api_key=api_key)
         self.model = model
         logger.info(f"Claude Provider 초기화: {model}")
+
+    def get_model_name(self) -> str:
+        return f"Claude/{self.model}"
 
     def translate(
         self,
@@ -408,6 +442,12 @@ class ClaudeProvider(LLMProvider):
                         {"role": "user", "content": text}
                     ]
                 )
+
+                # 토큰 사용량 수집
+                if response.usage:
+                    self.total_input_tokens += response.usage.input_tokens
+                    self.total_output_tokens += response.usage.output_tokens
+                    self.total_requests += 1
 
                 # Claude는 JSON 응답을 텍스트로 반환
                 translated_content = response.content[0].text
@@ -727,4 +767,15 @@ class LatexTranslator:
                 logger.error(f"파일 번역 실패: {e}")
 
         logger.info(f"\n✓ 번역 완료: {len(translated_files)}/{len(tex_files)}개 파일")
+
+        # 토큰 사용량 요약 출력
+        usage = self.provider.get_usage_summary()
+        logger.info("")
+        logger.info("📊 토큰 사용량 요약")
+        logger.info(f"  모델: {usage['model']}")
+        logger.info(f"  API 호출: {usage['total_requests']}회")
+        logger.info(f"  Input 토큰: {usage['total_input_tokens']:,}")
+        logger.info(f"  Output 토큰: {usage['total_output_tokens']:,}")
+        logger.info(f"  총 토큰: {usage['total_tokens']:,}")
+
         return translated_files

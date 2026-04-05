@@ -240,27 +240,27 @@ class FontManager:
             raise
 
         # XeLaTeX 전용 폰트 설정 (kotex 제거, xeCJK만 사용하여 충돌 방지)
+        # FakeSlant는 ItalicFont에만 적용, FakeBold는 BoldFont에만 적용
         font_config = f"""
 % Korean font configuration (XeLaTeX + xeCJK)
 \\usepackage{{xeCJK}}
 \\setCJKmainfont{{{main_font}}}[
     BoldFont={{{main_font}}},
+    BoldFeatures={{FakeBold=1.5}},
     ItalicFont={{{main_font}}},
+    ItalicFeatures={{FakeSlant=0.2}},
     BoldItalicFont={{{main_font}}},
-    FakeSlant=0.2,
-    FakeBold=1.5
+    BoldItalicFeatures={{FakeBold=1.5, FakeSlant=0.2}}
 ]
 \\setCJKsansfont{{{main_font}}}[
     BoldFont={{{main_font}}},
+    BoldFeatures={{FakeBold=1.5}},
     ItalicFont={{{main_font}}},
+    ItalicFeatures={{FakeSlant=0.2}},
     BoldItalicFont={{{main_font}}},
-    FakeSlant=0.2,
-    FakeBold=1.5
+    BoldItalicFeatures={{FakeBold=1.5, FakeSlant=0.2}}
 ]
-\\setCJKmonofont{{{mono_font}}}[
-    FakeSlant=0.2,
-    FakeBold=1.5
-]
+\\setCJKmonofont{{{mono_font}}}
 \\xeCJKsetup{{CJKspace=true}}
 """
 

@@ -260,25 +260,37 @@ class LatexCompiler:
         return pdf_file
 
     def _log_compile_errors(self, log_output: str) -> None:
-        """컴파일 로그에서 에러 추출"""
-        # 중요한 에러만 추출
-        error_patterns = [
-            r'! .*',  # LaTeX 에러
-            r'.*Error.*',  # 일반 에러
-            r'.*Warning.*',  # 경고
-        ]
+        """컴파일 로그에서 에러/경고 추출 및 분류"""
+        errors = []
+        warnings = []
 
-        important_lines = []
         for line in log_output.splitlines():
-            for pattern in error_patterns:
-                if re.match(pattern, line):
-                    important_lines.append(line)
-                    break
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # LaTeX 치명적 에러
+            if stripped.startswith('!') or 'Fatal error' in stripped:
+                errors.append(stripped)
+            # 패키지/폰트 에러
+            elif re.match(r'.*(Error|error).*', stripped) and 'Warning' not in stripped:
+                errors.append(stripped)
+            # 경고 (패키지 충돌, 누락 폰트 등)
+            elif re.match(r'.*(Warning|warning).*', stripped):
+                warnings.append(stripped)
+            # 누락 파일/폰트
+            elif 'Missing' in stripped or 'not found' in stripped:
+                warnings.append(stripped)
 
-        if important_lines:
-            logger.debug("컴파일 로그 (중요 부분):")
-            for line in important_lines[:20]:  # 최대 20줄만
-                logger.debug(f"  {line}")
+        if errors:
+            logger.warning(f"  컴파일 에러 ({len(errors)}개):")
+            for line in errors[:15]:
+                logger.warning(f"    ❌ {line}")
+        if warnings:
+            # 중복 제거
+            unique_warnings = list(dict.fromkeys(warnings))
+            logger.warning(f"  컴파일 경고 ({len(unique_warnings)}개):")
+            for line in unique_warnings[:15]:
+                logger.warning(f"    ⚠ {line}")
 
     def compile_directory(
         self,
