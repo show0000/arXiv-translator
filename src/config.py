@@ -24,7 +24,6 @@ class TranslationConfig:
 
     # 번역 설정
     target_language: str = "Korean"
-    chunk_size: int = 100
     max_workers: int = 8
     custom_instruction: Optional[str] = None
     custom_instruction_file: Optional[str] = None
@@ -139,10 +138,6 @@ class TranslationConfig:
         # 제공자 확인
         if self.provider not in ["openai", "claude"]:
             raise ValueError(f"지원하지 않는 LLM 제공자: {self.provider}")
-
-        # 청크 크기 확인
-        if self.chunk_size <= 0:
-            raise ValueError(f"chunk_size는 양수여야 합니다: {self.chunk_size}")
 
         logger.debug("설정 검증 완료")
 

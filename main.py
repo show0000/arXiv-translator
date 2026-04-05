@@ -73,11 +73,6 @@ logger = logging.getLogger(__name__)
     help='출력 디렉토리 (기본: output)'
 )
 @click.option(
-    '--chunk-size',
-    type=int,
-    help='번역 청크 크기 (기본: 100)'
-)
-@click.option(
     '--force',
     is_flag=True,
     help='기존 다운로드 파일 무시하고 재다운로드'
@@ -103,7 +98,6 @@ def main(
     main_font: str,
     mono_font: str,
     output_dir: str,
-    chunk_size: int,
     force: bool,
     verbose: bool,
     generate_config: bool
@@ -162,7 +156,6 @@ def main(
             main_font=main_font,
             mono_font=mono_font,
             output_dir=output_dir,
-            chunk_size=chunk_size,
             force_download=force,
         )
 
@@ -213,7 +206,6 @@ def main(
         translator = LatexTranslator(
             provider=llm_provider,
             target_language=translation_config.target_language,
-            chunk_size=translation_config.chunk_size,
             max_workers=translation_config.max_workers,
             custom_instruction=translation_config.custom_instruction
         )

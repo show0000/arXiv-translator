@@ -526,13 +526,11 @@ class LatexTranslator:
         self,
         provider: LLMProvider,
         target_language: str = "Korean",
-        chunk_size: int = 100,
         max_workers: int = 8,
         custom_instruction: Optional[str] = None
     ):
         self.provider = provider
         self.target_language = target_language
-        self.chunk_size = chunk_size
         self.max_workers = max_workers
         self.custom_instruction = custom_instruction
         self.content_filter = LatexContentFilter()
@@ -564,14 +562,14 @@ class LatexTranslator:
             return True
         return False
 
+    # 인접 문단 병합 시 청크 최대 줄 수
+    MAX_CHUNK_LINES = 50
+
     def chunk_lines(self, lines: list[tuple[int, str]]) -> list[list[tuple[int, str]]]:
         """줄을 문단 기반으로 동적 분할
 
         1단계: 문단 그룹으로 분리 (빈 줄, 섹션 명령어 등 기준)
-        2단계: 문단 그룹을 chunk_size 이내로 병합
-
-        이렇게 하면 문장이 중간에 잘리지 않고,
-        LLM이 완전한 문단 단위로 번역할 수 있습니다.
+        2단계: 인접 문단을 병합하여 API 호출 최소화 (섹션 경계에서 강제 분할)
 
         Args:
             lines: (line_id, line_text) 튜플 리스트
@@ -599,8 +597,7 @@ class LatexTranslator:
         if current_para:
             paragraphs.append(current_para)
 
-        # 2단계: 문단 그룹을 chunk_size 이내로 병합
-        # 섹션 경계에서는 반드시 새 청크 시작
+        # 2단계: 인접 문단을 병합 (섹션 경계에서 강제 분할)
         chunks = []
         current_chunk = []
 
@@ -611,13 +608,13 @@ class LatexTranslator:
                 chunks.append(current_chunk)
                 current_chunk = []
 
-            # 이 문단을 추가하면 chunk_size 초과하는 경우
-            if current_chunk and len(current_chunk) + len(para) > self.chunk_size:
+            # 병합 시 상한 초과하면 현재 청크 마감
+            if current_chunk and len(current_chunk) + len(para) > self.MAX_CHUNK_LINES:
                 chunks.append(current_chunk)
                 current_chunk = []
 
-            # 단일 문단이 chunk_size보다 큰 경우 (긴 문단)
-            if len(para) > self.chunk_size:
+            # 단일 문단이 상한보다 큰 경우 독립 청크로 분리
+            if len(para) > self.MAX_CHUNK_LINES:
                 if current_chunk:
                     chunks.append(current_chunk)
                     current_chunk = []
