@@ -29,18 +29,17 @@ class LatexContentFilter:
     """LaTeX 파일에서 번역 가능한 콘텐츠만 필터링"""
 
     def __init__(self):
-        # 번역 제외 환경 (수학, 코드 등)
-        # 주의: figure, table은 캡션 번역을 위해 제외하지 않음
+        # 번역 제외 환경 (수학, 코드, 그림, 표 등)
+        # figure/table도 포함 — 캡션은 별도 후처리로 번역
         self.skip_environments = [
             'equation', 'equation*', 'align', 'align*', 'gather', 'gather*',
             'multline', 'multline*', 'eqnarray', 'eqnarray*',
             'lstlisting', 'verbatim', 'verbatim*', 'minted',
             'tikzpicture', 'algorithm', 'algorithmic',
             'tabular', 'tabularx',
+            'figure', 'figure*', 'table', 'table*',
+            'tcolorbox',
         ]
-
-        # figure/table 내부에서 캡션만 번역하고 나머지는 건너뛰는 환경
-        self.caption_environments = ['figure', 'figure*', 'table', 'table*']
 
         # 번역 대상 명령어 (인자를 번역해야 하는 명령어)
         self.translatable_commands = [
@@ -112,10 +111,8 @@ class LatexContentFilter:
         if self.env_stack and self.env_stack[-1] in self.skip_environments:
             return False
 
-        # figure/table 내부: 캡션(\caption{...})이 포함된 줄만 번역
-        if self.env_stack and any(env in self.caption_environments for env in self.env_stack):
-            if re.search(r'\\caption(\[.*?\])?\{', stripped):
-                return True
+        # tcolorbox 등 복잡한 환경도 보호
+        if self.env_stack and self.env_stack[-1] == 'tcolorbox':
             return False
 
         # 인라인 수학 모드 체크 ($ ... $ 또는 \[ ... \])
@@ -744,6 +741,78 @@ class LatexTranslator:
 
         return translated_text
 
+    def translate_captions(self, tex_file: Path, paper_info: dict) -> int:
+        """figure/table 내부의 \\caption{...} 텍스트만 별도로 번역
+
+        figure/table 환경은 구조 보호를 위해 통째로 건너뛰지만,
+        caption 텍스트는 사용자에게 보이므로 후처리로 번역합니다.
+
+        Returns:
+            번역된 캡션 수
+        """
+        with open(tex_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # \caption[short]{long text ...} 또는 \caption{text ...} 매칭
+        # 중괄호 중첩을 처리하기 위해 간단한 파서 사용
+        caption_pattern = re.compile(r'\\caption(?:\[[^\]]*\])?\{')
+
+        captions = []  # (start, end, caption_text)
+        for match in caption_pattern.finditer(content):
+            start = match.end()  # { 다음 위치
+            # 중괄호 균형 맞추기
+            depth = 1
+            pos = start
+            while pos < len(content) and depth > 0:
+                if content[pos] == '{':
+                    depth += 1
+                elif content[pos] == '}':
+                    depth -= 1
+                pos += 1
+            if depth == 0:
+                caption_text = content[start:pos - 1]
+                captions.append((start, pos - 1, caption_text))
+
+        if not captions:
+            return 0
+
+        logger.info(f"📝 캡션 {len(captions)}개 번역 중...")
+
+        # 캡션 텍스트를 하나의 청크로 모아 번역
+        caption_data = {
+            "lines": [
+                {"id": i, "text": cap_text}
+                for i, (_, _, cap_text) in enumerate(captions)
+            ]
+        }
+        caption_json = json.dumps(caption_data, ensure_ascii=False)
+
+        try:
+            translated = self.provider.translate(
+                caption_json,
+                paper_info,
+                self.target_language,
+                self.custom_instruction
+            )
+
+            # 원본 파일에서 캡션 텍스트 치환 (뒤에서부터 교체하여 인덱스 유지)
+            for i in range(len(captions) - 1, -1, -1):
+                start, end, original_text = captions[i]
+                new_text = translated.get(i, original_text)
+                # 줄바꿈 정리
+                new_text = new_text.strip()
+                content = content[:start] + new_text + content[end:]
+
+            with open(tex_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            logger.info(f"✓ 캡션 {len(captions)}개 번역 완료")
+            return len(captions)
+
+        except Exception as e:
+            logger.error(f"❌ 캡션 번역 실패: {e}")
+            return 0
+
     def translate_file(
         self,
         tex_file: Path,
@@ -871,6 +940,9 @@ class LatexTranslator:
         # 번역된 내용 저장
         with open(tex_file, 'w', encoding='utf-8') as f:
             f.writelines(result_lines)
+
+        # figure/table 캡션 후처리 번역
+        self.translate_captions(tex_file, paper_info)
 
         logger.info(f"✓ 파일 번역 완료: {tex_file}")
 
