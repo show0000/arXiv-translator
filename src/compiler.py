@@ -359,6 +359,23 @@ class LatexCompiler:
 
         tex_dir = tex_file.parent
         tex_filename = tex_file.name
+        tex_stem = tex_file.stem
+
+        # bibtex 실행 (.bib 파일이 있는 경우)
+        bib_files = list(tex_dir.rglob("*.bib"))
+        if bib_files:
+            # 1차 xelatex로 .aux 생성
+            logger.info("컴파일 준비: xelatex (aux 생성)...")
+            subprocess.run(
+                ['xelatex', '-interaction=nonstopmode', tex_filename],
+                cwd=tex_dir, capture_output=True, text=True, timeout=300
+            )
+            # bibtex 실행
+            logger.info("컴파일 준비: bibtex (참고문헌 처리)...")
+            subprocess.run(
+                ['bibtex', tex_stem],
+                cwd=tex_dir, capture_output=True, text=True, timeout=60
+            )
 
         # 컴파일 실행
         compile_count = 2 if compile_twice else 1
