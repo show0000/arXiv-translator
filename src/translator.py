@@ -296,6 +296,24 @@ class OpenAIProvider(LLMProvider):
 
         raise Exception("번역 실패: 모든 재시도 소진")
 
+    @staticmethod
+    def _format_paper_context(paper_info: dict) -> str:
+        """paper_info에서 구조/용어 정보를 프롬프트 문자열로 변환"""
+        parts = []
+
+        outline = paper_info.get('section_outline', '')
+        if outline:
+            parts.append(f"\n### Paper Structure:\n{outline}\n")
+
+        terms = paper_info.get('key_terms', [])
+        if terms:
+            terms_str = ', '.join(terms)
+            parts.append(
+                f"\n### Key Terms (maintain consistent translation):\n{terms_str}\n"
+            )
+
+        return '\n'.join(parts)
+
     def _build_system_prompt(
         self,
         paper_info: dict,
@@ -362,7 +380,7 @@ Translation Instructions:
 ### Paper Info:
 - Title : {paper_title}
 - Abstract : {paper_abstract}
-
+{self._format_paper_context(paper_info)}
 ### Response Example:
 #INPUT:
 {{
@@ -533,6 +551,64 @@ class LatexTranslator:
         self.custom_instruction = custom_instruction
         self.content_filter = LatexContentFilter()
 
+    @staticmethod
+    def extract_paper_context(tex_file: Path) -> dict:
+        """tex 파일에서 논문 구조 및 핵심 용어를 추출
+
+        각 청크가 독립적으로 번역되더라도 전체 논문의 맥락을 공유하도록
+        섹션 구조와 핵심 용어를 추출합니다.
+
+        Args:
+            tex_file: .tex 파일 경로
+
+        Returns:
+            {"section_outline": str, "key_terms": list[str]}
+        """
+        with open(tex_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 1. 섹션 구조 추출
+        section_pattern = re.compile(
+            r'\\(section|subsection|subsubsection)\*?\{([^}]+)\}'
+        )
+        indent_map = {'section': '', 'subsection': '  ', 'subsubsection': '    '}
+        outline_lines = []
+        for match in section_pattern.finditer(content):
+            level = match.group(1)
+            title = match.group(2).strip()
+            indent = indent_map.get(level, '')
+            outline_lines.append(f"{indent}- {title}")
+
+        section_outline = '\n'.join(outline_lines) if outline_lines else ''
+
+        # 2. 핵심 용어 추출
+        from collections import Counter
+
+        terms = []
+        # 대문자 약어 (RPN, CNN, VGG 등) — 본문에서 빈번하게 등장하는 것
+        acronyms = re.findall(r'\b([A-Z][A-Z0-9]{1,}(?:-[A-Z0-9]+)*)\b', content)
+        acronym_counts = Counter(acronyms)
+        terms.extend(
+            acr for acr, cnt in acronym_counts.most_common()
+            if cnt >= 3 and acr not in {'AND', 'THE', 'FOR', 'GPU', 'CPU', 'URL'}
+        )
+
+        # 하이픈 연결 기술 용어 (end-to-end, class-agnostic 등)
+        hyphenated = re.findall(r'\b([a-z]+-[a-z]+(?:-[a-z]+)*)\b', content)
+        hyph_counts = Counter(hyphenated)
+        terms.extend(
+            h for h, cnt in hyph_counts.most_common()
+            if cnt >= 3 and len(h) > 5
+        )
+
+        # 중복 제거 (순서 유지)
+        key_terms = list(dict.fromkeys(terms))
+
+        return {
+            "section_outline": section_outline,
+            "key_terms": key_terms[:20],  # 상위 20개만
+        }
+
     def remove_latex_commands(self, text: str) -> str:
         """불필요한 LaTeX 명령 제거"""
         # CJK* 관련 내용을 자동으로 대체
@@ -682,6 +758,15 @@ class LatexTranslator:
             backup: 원본 파일 백업 여부
         """
         logger.info(f"파일 번역 시작: {tex_file}")
+
+        # 논문 구조/용어 추출하여 paper_info에 병합
+        paper_context = self.extract_paper_context(tex_file)
+        paper_info = {**paper_info, **paper_context}
+        if paper_context['section_outline']:
+            section_count = paper_context['section_outline'].count('\n') + 1
+            logger.info(f"📋 논문 구조 추출: {section_count}개 섹션")
+        if paper_context['key_terms']:
+            logger.info(f"🔑 핵심 용어 추출: {len(paper_context['key_terms'])}개")
 
         # 파일 읽기
         with open(tex_file, 'r', encoding='utf-8') as f:
