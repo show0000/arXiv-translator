@@ -630,6 +630,23 @@ class LatexTranslator:
 
             try:
                 translated_dict = self.translate_chunk(chunk, paper_info)
+
+                # 번역 완전성 검증: 누락된 ID 체크
+                chunk_ids = {line_id for line_id, _ in chunk}
+                returned_ids = set(translated_dict.keys())
+                missing_ids = chunk_ids - returned_ids
+
+                if missing_ids:
+                    missing_ratio = len(missing_ids) / len(chunk_ids)
+                    logger.warning(
+                        f"⚠ 청크 {i+1}: {len(missing_ids)}/{len(chunk_ids)}개 "
+                        f"라인 ID 누락 ({missing_ratio:.0%})"
+                    )
+                    # 누락된 ID는 원문으로 채움
+                    for line_id, line_text in chunk:
+                        if line_id not in translated_dict:
+                            translated_dict[line_id] = line_text
+
                 all_translations.update(translated_dict)
 
             except Exception as e:
@@ -640,10 +657,14 @@ class LatexTranslator:
 
         # 최종 결과 조립 (ID 기반)
         result_lines = []
+        fallback_count = 0
         for original_idx, original_line, should_translate, trans_id in line_info:
             if should_translate and trans_id is not None:
                 # 번역된 내용 가져오기
-                translated_text = all_translations.get(trans_id, original_line)
+                translated_text = all_translations.get(trans_id)
+                if translated_text is None:
+                    translated_text = original_line
+                    fallback_count += 1
                 # 줄바꿈이 없으면 추가 (LaTeX 구조 보존)
                 if translated_text and not translated_text.endswith('\n'):
                     translated_text += '\n'
@@ -651,6 +672,15 @@ class LatexTranslator:
             else:
                 # 번역 불필요한 라인은 원본 그대로
                 result_lines.append(original_line)
+
+        # 번역 완전성 리포트
+        if fallback_count > 0:
+            logger.warning(
+                f"⚠ 번역 완전성: {translatable_count - fallback_count}/{translatable_count}줄 번역됨 "
+                f"({fallback_count}줄 원문 유지)"
+            )
+        else:
+            logger.info(f"✓ 번역 완전성: {translatable_count}/{translatable_count}줄 모두 번역됨")
 
         # 번역된 내용 저장
         with open(tex_file, 'w', encoding='utf-8') as f:
