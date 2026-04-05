@@ -1,0 +1,25 @@
+# arXiv 논문 번역기 설정 파일
+
+# LLM 설정
+provider: openai  # openai 또는 claude
+model: gpt-5-nano     # gpt-4, gpt-3.5-turbo, claude-3-5-sonnet-20241022 등
+api_key: null     # API 키 (또는 환경변수 OPENAI_API_KEY, ANTHROPIC_API_KEY 사용)
+
+# 번역 설정
+target_language: Korean
+chunk_size: 100              # 한 번에 번역할 줄 수
+max_workers: 8               # 병렬 처리 워커 수
+custom_instruction: null     # 추가 번역 지침
+custom_instruction_file: null  # 추가 번역 지침 파일 경로
+
+# 폰트 설정
+main_font: null   # 주 폰트 (예: "Noto Sans KR"), null이면 자동 감지
+mono_font: null   # 고정폭 폰트 (예: "Noto Sans Mono CJK KR"), null이면 자동 감지
+
+# 출력 설정
+output_dir: output              # PDF 출력 디렉토리
+download_dir: arxiv_downloads   # 다운로드 디렉토리
+
+# 기타
+force_download: false   # 기존 파일 무시하고 재다운로드
+compile_twice: true     # 참조 해결을 위해 2번 컴파일

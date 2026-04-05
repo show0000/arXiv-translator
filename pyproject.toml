@@ -1,0 +1,15 @@
+[project]
+name = "arxiv-translator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.71.0",
+    "beautifulsoup4>=4.14.2",
+    "click>=8.3.0",
+    "lxml>=6.0.2",
+    "openai>=2.6.1",
+    "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+]
