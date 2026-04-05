@@ -30,15 +30,15 @@ class LatexContentFilter:
     """LaTeX 파일에서 번역 가능한 콘텐츠만 필터링"""
 
     def __init__(self):
-        # 번역 제외 환경 (수학, 코드, 그림, 표 등)
-        # figure/table도 포함 — 캡션은 별도 후처리로 번역
+        # 번역 제외 환경 (수학, 코드, 그림 등)
+        # figure는 구조 보호 — 캡션은 별도 후처리로 번역
+        # table/tabular는 번역 대상 포함 (표 내 텍스트 번역 필요)
         self.skip_environments = [
             'equation', 'equation*', 'align', 'align*', 'gather', 'gather*',
             'multline', 'multline*', 'eqnarray', 'eqnarray*',
             'lstlisting', 'verbatim', 'verbatim*', 'minted',
             'tikzpicture', 'algorithm', 'algorithmic',
-            'tabular', 'tabularx',
-            'figure', 'figure*', 'table', 'table*',
+            'figure', 'figure*',
             'tcolorbox',
         ]
 
@@ -964,11 +964,14 @@ class LatexTranslator:
         # 번역 (순차 처리) - 결과는 {id: translated_text} 딕셔너리
         all_translations = {}
         total_chunks = len(chunks)
+        show_progress = total_chunks > 1
 
-        # 진행률 표시 초기화
-        if total_chunks > 1:
-            sys.stdout.write(f"\r  번역 진행: [{'·' * total_chunks}] 0/{total_chunks}")
-            sys.stdout.flush()
+        # 진행률 바 표시 시 logging 핸들러의 줄바꿈과 충돌 방지
+        if show_progress:
+            # logging 핸들러를 일시 중단하고 직접 stderr에 출력
+            for handler in logging.root.handlers:
+                handler.flush()
+            print(f"  번역 진행: [{'·' * total_chunks}] 0/{total_chunks}", end='', flush=True)
 
         for i, chunk in enumerate(chunks):
             try:
@@ -981,11 +984,25 @@ class LatexTranslator:
 
                 if missing_ids:
                     missing_ratio = len(missing_ids) / len(chunk_ids)
+                    if show_progress:
+                        print()
                     logger.warning(
                         f"⚠ 청크 {i+1}: {len(missing_ids)}/{len(chunk_ids)}개 "
-                        f"라인 ID 누락 ({missing_ratio:.0%})"
+                        f"라인 ID 누락 ({missing_ratio:.0%}) — 누락 줄 재번역 시도"
                     )
-                    # 누락된 ID는 원문으로 채움
+                    if show_progress:
+                        for handler in logging.root.handlers:
+                            handler.flush()
+                    # 누락된 줄만 모아 재번역 시도
+                    missing_lines = [
+                        (lid, ltxt) for lid, ltxt in chunk if lid in missing_ids
+                    ]
+                    try:
+                        retry_dict = self.translate_chunk(missing_lines, paper_info)
+                        translated_dict.update(retry_dict)
+                    except Exception:
+                        pass  # 재시도도 실패하면 아래에서 원문으로 채움
+                    # 여전히 누락된 ID는 원문으로 채움
                     for line_id, line_text in chunk:
                         if line_id not in translated_dict:
                             translated_dict[line_id] = line_text
@@ -993,21 +1010,21 @@ class LatexTranslator:
                 all_translations.update(translated_dict)
 
             except Exception as e:
+                if show_progress:
+                    print()
                 logger.error(f"❌ 청크 {i+1} 번역 실패: {e}")
                 # 실패 시 원문 유지
                 for line_id, line_text in chunk:
                     all_translations[line_id] = line_text
 
             # 진행률 업데이트
-            if total_chunks > 1:
+            if show_progress:
                 done = i + 1
                 bar = '━' * done + '·' * (total_chunks - done)
-                sys.stdout.write(f"\r  번역 진행: [{bar}] {done}/{total_chunks}")
-                sys.stdout.flush()
+                print(f"\r  번역 진행: [{bar}] {done}/{total_chunks}", end='', flush=True)
 
-        if total_chunks > 1:
-            sys.stdout.write('\n')
-            sys.stdout.flush()
+        if show_progress:
+            print()  # 진행률 바 종료 줄바꿈
 
         # 최종 결과 조립 (ID 기반)
         result_lines = []
