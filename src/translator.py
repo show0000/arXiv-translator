@@ -391,7 +391,7 @@ class ClaudeProvider(LLMProvider):
             try:
                 response = self.client.messages.create(
                     model=self.model,
-                    max_tokens=4096,
+                    max_tokens=16384,
                     system=system_prompt,
                     messages=[
                         {"role": "user", "content": text}
