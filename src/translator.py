@@ -526,12 +526,10 @@ class LatexTranslator:
         self,
         provider: LLMProvider,
         target_language: str = "Korean",
-        max_workers: int = 8,
         custom_instruction: Optional[str] = None
     ):
         self.provider = provider
         self.target_language = target_language
-        self.max_workers = max_workers
         self.custom_instruction = custom_instruction
         self.content_filter = LatexContentFilter()
 

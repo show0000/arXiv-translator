@@ -24,7 +24,6 @@ class TranslationConfig:
 
     # 번역 설정
     target_language: str = "Korean"
-    max_workers: int = 8
     custom_instruction: Optional[str] = None
     custom_instruction_file: Optional[str] = None
 

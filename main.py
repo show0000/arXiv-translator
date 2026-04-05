@@ -206,7 +206,6 @@ def main(
         translator = LatexTranslator(
             provider=llm_provider,
             target_language=translation_config.target_language,
-            max_workers=translation_config.max_workers,
             custom_instruction=translation_config.custom_instruction
         )
 

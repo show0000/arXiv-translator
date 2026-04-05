@@ -7,7 +7,6 @@ api_key: null     # API 키 (또는 환경변수 OPENAI_API_KEY, ANTHROPIC_API_K
 
 # 번역 설정
 target_language: Korean
-max_workers: 8               # 병렬 처리 워커 수
 custom_instruction: null     # 추가 번역 지침
 custom_instruction_file: null  # 추가 번역 지침 파일 경로
 
