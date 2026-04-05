@@ -583,11 +583,17 @@ class LatexTranslator:
         text = re.sub(r'\$(?!\$)([^\$\n]+?)\$', _replace, text)
         # 4. 인라인 수식 \(...\) (여러 줄에 걸칠 수 있음)
         text = re.sub(r'\\\(.+?\\\)', _replace, text, flags=re.DOTALL)
-        # 5. 백슬래시+공백 패턴: "vs.\ ", "e.g.\ ", "i.e.\ " 등
-        #    LLM이 "vs.\ word" → "대 \word"로 번역하거나
-        #    "vs.\ (right)" → "\(우)" 수식 모드 오인 방지
+        # 5. 인용/참조 명령어 — LLM이 \citep{key}를 (?)로 바꾸는 문제 방지
+        text = re.sub(
+            r'\\(?:cite[pt]?|citet|citep|citeauthor|citealt|citealp|Cite[pt]?)'
+            r'(?:\[[^\]]*\])*\{[^}]+\}',
+            _replace, text
+        )
+        # 6. \ref, \eqref, \label 등 참조 명령어
+        text = re.sub(r'\\(?:ref|eqref|pageref|autoref|cref|Cref|label)\{[^}]+\}', _replace, text)
+        # 7. 백슬래시+공백 패턴: "vs.\ ", "e.g.\ ", "i.e.\ " 등
         text = re.sub(r'(?<=[a-zA-Z.])\\ (?=[a-zA-Z(])', _replace, text)
-        # 5. 틸데 공백 (~) — LaTeX의 non-breaking space
+        # 8. 틸데 공백 (~) — LaTeX의 non-breaking space
         text = re.sub(r'~', _replace, text)
 
         return text, placeholders
