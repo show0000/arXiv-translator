@@ -550,36 +550,47 @@ class LatexTranslator:
         self.custom_instruction = custom_instruction
         self.dynamic_chunking = dynamic_chunking
         self.content_filter = LatexContentFilter()
-    _math_counter = 0  # 클래스 레벨 카운터로 청크 내 고유 ID 보장
+    _placeholder_counter = 0  # 클래스 레벨 카운터로 청크 내 고유 ID 보장
 
     @classmethod
-    def _protect_math(cls, text: str) -> tuple[str, dict[str, str]]:
-        """인라인 수식($...$)과 디스플레이 수식($$...$$, \\[...\\])을 플레이스홀더로 치환
+    def _protect_latex(cls, text: str) -> tuple[str, dict[str, str]]:
+        """번역 시 훼손되기 쉬운 LaTeX 구문을 플레이스홀더로 보호
+
+        보호 대상:
+        - 인라인/디스플레이 수식: $...$, $$...$$, \\[...\\]
+        - 백슬래시+공백 (vs.\\ , e.g.\\ 등): LLM이 \\를 다음 단어에 붙여 명령어로 만드는 문제 방지
+        - 틸데 공백 (~): 번역 시 사라지는 문제 방지
 
         Returns:
-            (치환된 텍스트, {플레이스홀더: 원본 수식} 매핑)
+            (치환된 텍스트, {플레이스홀더: 원본} 매핑)
         """
         placeholders = {}
 
         def _replace(match):
-            key = f"%%MATH_{cls._math_counter}%%"
+            key = f"%%PH_{cls._placeholder_counter}%%"
             placeholders[key] = match.group(0)
-            cls._math_counter += 1
+            cls._placeholder_counter += 1
             return key
 
-        # 순서 중요: $$...$$ 먼저, 그 다음 $...$
+        # 순서 중요: 긴 패턴 먼저
+
         # 1. 디스플레이 수식 $$...$$
         text = re.sub(r'\$\$.+?\$\$', _replace, text, flags=re.DOTALL)
         # 2. \[...\]
         text = re.sub(r'\\\[.+?\\\]', _replace, text, flags=re.DOTALL)
         # 3. 인라인 수식 $...$ (빈 것 제외, 줄바꿈 없는 것만)
         text = re.sub(r'\$(?!\$)([^\$\n]+?)\$', _replace, text)
+        # 4. 백슬래시+공백 패턴: "vs.\ ", "e.g.\ ", "i.e.\ " 등
+        #    LLM이 "vs.\ word" → "대 \word"로 번역하여 undefined command 생성 방지
+        text = re.sub(r'(?<=[a-zA-Z.])\\ (?=[a-zA-Z])', _replace, text)
+        # 5. 틸데 공백 (~) — LaTeX의 non-breaking space
+        text = re.sub(r'~', _replace, text)
 
         return text, placeholders
 
     @staticmethod
-    def _restore_math(text: str, placeholders: dict[str, str]) -> str:
-        """플레이스홀더를 원본 수식으로 복원"""
+    def _restore_latex(text: str, placeholders: dict[str, str]) -> str:
+        """플레이스홀더를 원본 LaTeX 구문으로 복원"""
         for key, original in placeholders.items():
             text = text.replace(key, original)
         return text
@@ -759,7 +770,7 @@ class LatexTranslator:
         all_placeholders: dict[str, str] = {}
         protected_lines = []
         for line_id, text in chunk:
-            protected_text, placeholders = self._protect_math(text)
+            protected_text, placeholders = self._protect_latex(text)
             all_placeholders.update(placeholders)
             protected_lines.append((line_id, protected_text))
 
@@ -785,7 +796,7 @@ class LatexTranslator:
 
         # 플레이스홀더를 원본 수식으로 복원
         restored_dict = {
-            line_id: self._restore_math(text, all_placeholders)
+            line_id: self._restore_latex(text, all_placeholders)
             for line_id, text in translated_dict.items()
         }
 
@@ -832,7 +843,7 @@ class LatexTranslator:
         all_placeholders: dict[str, str] = {}
         protected_captions = []
         for i, (start, end, cap_text) in enumerate(captions):
-            ptext, placeholders = self._protect_math(cap_text)
+            ptext, placeholders = self._protect_latex(cap_text)
             all_placeholders.update(placeholders)
             protected_captions.append((i, start, end, ptext))
 
@@ -857,7 +868,7 @@ class LatexTranslator:
                 start, end, original_text = captions[i]
                 new_text = translated.get(i, original_text)
                 # 수식 플레이스홀더 복원 후 줄바꿈 정리
-                new_text = self._restore_math(new_text, all_placeholders).strip()
+                new_text = self._restore_latex(new_text, all_placeholders).strip()
                 # 중괄호 균형 검증 — 불균형이면 원문 유지
                 brace_depth = 0
                 for ch in new_text:
