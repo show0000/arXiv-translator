@@ -1061,11 +1061,22 @@ class LatexTranslator:
         """
         logger.info(f"디렉토리 번역 시작: {directory}")
 
-        # .tex 파일 찾기 (백업 파일 제외)
-        tex_files = [
+        # .tex 파일 분류: 메인 파일(본문+캡션 번역) vs 서브 파일(캡션만 번역)
+        all_tex = [
             f for f in directory.rglob("*.tex")
             if "_original" not in f.name
         ]
+        tex_files = []
+        sub_files = []
+        for f in all_tex:
+            try:
+                content = f.read_text(encoding='utf-8')
+                if r'\documentclass' in content or r'\begin{document}' in content:
+                    tex_files.append(f)
+                else:
+                    sub_files.append(f)
+            except Exception:
+                continue
 
         if not tex_files:
             logger.warning("번역할 .tex 파일이 없습니다.")
@@ -1073,7 +1084,7 @@ class LatexTranslator:
 
         logger.info(f"총 {len(tex_files)}개 파일 번역 예정")
 
-        # 각 파일 번역
+        # 메인 파일 번역 (본문 + 캡션)
         translated_files = []
         for i, tex_file in enumerate(tex_files):
             logger.info(f"\n[{i+1}/{len(tex_files)}] {tex_file.name}")
@@ -1083,7 +1094,14 @@ class LatexTranslator:
             except Exception as e:
                 logger.error(f"파일 번역 실패: {e}")
 
-        logger.info(f"\n✓ 번역 완료: {len(translated_files)}/{len(tex_files)}개 파일")
+        # 서브 파일 캡션만 번역 (표/그림 등)
+        if sub_files:
+            for sub_file in sub_files:
+                cap_count = self.translate_captions(sub_file, paper_info)
+                if cap_count > 0:
+                    logger.info(f"  서브 파일 캡션 번역: {sub_file.name} ({cap_count}개)")
+
+        logger.info(f"\n✓ 번역 완료: {len(translated_files)}개 메인 파일")
 
         # 토큰 사용량 요약 출력
         usage = self.provider.get_usage_summary()
