@@ -163,17 +163,25 @@ class LatexCompiler:
             with open(tex_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
 
-            # \\documentclass 다음에 폰트 설정 삽입
-            # 들여쓰기된 경우(\ifnum 조건문 등)도 매칭
+            # \\begin{document} 바로 앞에 폰트 설정 삽입
+            # 이 위치가 가장 안전: 모든 조건문/패키지 로드 이후, 문서 시작 전
             inserted = False
             for i, line in enumerate(lines):
-                if r'\documentclass' in line and not line.strip().startswith('%'):
-                    lines.insert(i + 1, font_config + '\n')
+                if r'\begin{document}' in line and not line.strip().startswith('%'):
+                    lines.insert(i, font_config + '\n')
                     inserted = True
                     break
 
             if not inserted:
-                logger.warning("⚠ \\documentclass를 찾지 못함 — 파일 시작에 폰트 설정 삽입")
+                # fallback: 마지막 \documentclass 바로 뒤
+                for i in range(len(lines) - 1, -1, -1):
+                    if r'\documentclass' in lines[i] and not lines[i].strip().startswith('%'):
+                        lines.insert(i + 1, font_config + '\n')
+                        inserted = True
+                        break
+
+            if not inserted:
+                logger.warning("⚠ 삽입 위치를 찾지 못함 — 파일 시작에 폰트 설정 삽입")
                 lines.insert(0, font_config + '\n')
 
             with open(tex_file, 'w', encoding='utf-8') as f:
