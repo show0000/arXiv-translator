@@ -966,11 +966,13 @@ class LatexTranslator:
         total_chunks = len(chunks)
         show_progress = total_chunks > 1
 
-        # 진행률 바 표시 시 logging 핸들러의 줄바꿈과 충돌 방지
+        # 진행률 바 표시 시 HTTP 로그 억제
         if show_progress:
-            # logging 핸들러를 일시 중단하고 직접 stderr에 출력
-            for handler in logging.root.handlers:
-                handler.flush()
+            # httpx/openai의 INFO 로그가 진행률 바를 깨뜨리므로 억제
+            _httpx_level = logging.getLogger("httpx").level
+            _openai_level = logging.getLogger("openai").level
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+            logging.getLogger("openai").setLevel(logging.WARNING)
             print(f"  번역 진행: [{'·' * total_chunks}] 0/{total_chunks}", end='', flush=True)
 
         for i, chunk in enumerate(chunks):
@@ -1025,6 +1027,9 @@ class LatexTranslator:
 
         if show_progress:
             print()  # 진행률 바 종료 줄바꿈
+            # 억제했던 HTTP 로그 레벨 복원
+            logging.getLogger("httpx").setLevel(_httpx_level)
+            logging.getLogger("openai").setLevel(_openai_level)
 
         # 최종 결과 조립 (ID 기반)
         result_lines = []
