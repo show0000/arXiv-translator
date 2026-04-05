@@ -81,6 +81,21 @@ class LatexContentFilter:
         if self.in_reference_section:
             return False
 
+        # 환경 종료 감지 (시작보다 먼저 체크 - 같은 줄에 begin/end 있을 수 있음)
+        end_match = re.search(r'\\end\{([^}]+)\}', stripped)
+        if end_match:
+            env_name = end_match.group(1)
+            # 스택에서 매칭되는 환경 이름을 찾아서 제거
+            if self.env_stack and self.env_stack[-1] == env_name:
+                self.env_stack.pop()
+            elif env_name in self.env_stack:
+                # 중첩이 꼬인 경우: 해당 환경까지 pop
+                while self.env_stack and self.env_stack[-1] != env_name:
+                    self.env_stack.pop()
+                if self.env_stack:
+                    self.env_stack.pop()
+            return False
+
         # 환경 시작 감지
         begin_match = re.search(r'\\begin\{([^}]+)\}', stripped)
         if begin_match:
@@ -88,12 +103,6 @@ class LatexContentFilter:
             self.env_stack.append(env_name)
             if env_name in self.skip_environments:
                 return False
-
-        # 환경 종료 감지
-        end_match = re.search(r'\\end\{([^}]+)\}', stripped)
-        if end_match and self.env_stack:
-            self.env_stack.pop()
-            return False
 
         # 번역 제외 환경 내부인 경우
         if self.env_stack and self.env_stack[-1] in self.skip_environments:
