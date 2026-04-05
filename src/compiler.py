@@ -251,6 +251,19 @@ class LatexCompiler:
                 fixed_line = new_line
                 fixed_count += 1
 
+            # === 3. \명령어+한글 직접 연결 수정 (\method를 → \method{}를) ===
+            # LaTeX는 \cmd 뒤에 알파벳이 오면 명령어 이름의 일부로 인식
+            def _fix_cmd_korean(m):
+                return '\\' + m.group(1) + '{}' + m.group(2)
+            new_line = re.sub(
+                r'\\([a-zA-Z]+)([가-힣])',
+                lambda m: _fix_cmd_korean(m) if m.group(1) in valid_cmds else m.group(0),
+                fixed_line
+            )
+            if new_line != fixed_line:
+                fixed_line = new_line
+                fixed_count += 1
+
             result_lines.append(fixed_line)
 
         # === 3. 환경 구조 검증: begin/end 매칭 ===
