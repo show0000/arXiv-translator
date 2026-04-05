@@ -547,6 +547,37 @@ class LatexTranslator:
         self.target_language = target_language
         self.custom_instruction = custom_instruction
         self.content_filter = LatexContentFilter()
+        self._math_placeholders: dict[str, str] = {}
+
+    def _protect_math(self, text: str) -> str:
+        """인라인 수식($...$)과 디스플레이 수식($$...$$, \\[...\\])을 플레이스홀더로 치환
+
+        LLM이 수식 내부의 $ 쌍을 혼동하지 않도록 보호합니다.
+        """
+        self._math_placeholders = {}
+        counter = [0]
+
+        def _replace(match):
+            key = f"%%MATH_{counter[0]}%%"
+            self._math_placeholders[key] = match.group(0)
+            counter[0] += 1
+            return key
+
+        # 순서 중요: $$...$$ 먼저, 그 다음 $...$
+        # 1. 디스플레이 수식 $$...$$
+        text = re.sub(r'\$\$.+?\$\$', _replace, text, flags=re.DOTALL)
+        # 2. \[...\]
+        text = re.sub(r'\\\[.+?\\\]', _replace, text, flags=re.DOTALL)
+        # 3. 인라인 수식 $...$ (빈 것 제외, 줄바꿈 없는 것만)
+        text = re.sub(r'\$(?!\$)([^\$\n]+?)\$', _replace, text)
+
+        return text
+
+    def _restore_math(self, text: str) -> str:
+        """플레이스홀더를 원본 수식으로 복원"""
+        for key, original in self._math_placeholders.items():
+            text = text.replace(key, original)
+        return text
 
     @staticmethod
     def extract_paper_context(tex_file: Path) -> dict:
@@ -719,11 +750,17 @@ class LatexTranslator:
         Returns:
             {line_id: translated_text} 딕셔너리
         """
+        # 수식을 플레이스홀더로 보호
+        protected_lines = [
+            (line_id, self._protect_math(text))
+            for line_id, text in chunk
+        ]
+
         # ID 기반 JSON 형식으로 변환
         chunk_data = {
             "lines": [
                 {"id": line_id, "text": text}
-                for line_id, text in chunk
+                for line_id, text in protected_lines
             ]
         }
         chunk_json = json.dumps(chunk_data, ensure_ascii=False)
@@ -732,14 +769,20 @@ class LatexTranslator:
         cleaned_text = self.remove_latex_commands(chunk_json)
 
         # 번역
-        translated_text = self.provider.translate(
+        translated_dict = self.provider.translate(
             cleaned_text,
             paper_info,
             self.target_language,
             self.custom_instruction
         )
 
-        return translated_text
+        # 플레이스홀더를 원본 수식으로 복원
+        restored_dict = {
+            line_id: self._restore_math(text)
+            for line_id, text in translated_dict.items()
+        }
+
+        return restored_dict
 
     def translate_captions(self, tex_file: Path, paper_info: dict) -> int:
         """figure/table 내부의 \\caption{...} 텍스트만 별도로 번역
@@ -778,11 +821,15 @@ class LatexTranslator:
 
         logger.info(f"📝 캡션 {len(captions)}개 번역 중...")
 
-        # 캡션 텍스트를 하나의 청크로 모아 번역
+        # 캡션 텍스트를 하나의 청크로 모아 번역 (수식 보호)
+        protected_captions = [
+            (i, start, end, self._protect_math(cap_text))
+            for i, (start, end, cap_text) in enumerate(captions)
+        ]
         caption_data = {
             "lines": [
-                {"id": i, "text": cap_text}
-                for i, (_, _, cap_text) in enumerate(captions)
+                {"id": i, "text": ptext}
+                for i, _, _, ptext in protected_captions
             ]
         }
         caption_json = json.dumps(caption_data, ensure_ascii=False)
@@ -799,8 +846,8 @@ class LatexTranslator:
             for i in range(len(captions) - 1, -1, -1):
                 start, end, original_text = captions[i]
                 new_text = translated.get(i, original_text)
-                # 줄바꿈 정리
-                new_text = new_text.strip()
+                # 수식 플레이스홀더 복원 후 줄바꿈 정리
+                new_text = self._restore_math(new_text).strip()
                 content = content[:start] + new_text + content[end:]
 
             with open(tex_file, 'w', encoding='utf-8') as f:
