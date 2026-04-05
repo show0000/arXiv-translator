@@ -14,6 +14,17 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _safe_newline_replace(text: str) -> str:
+    """리터럴 \\n을 실제 줄바꿈으로 안전하게 변환
+
+    LaTeX 명령어(\\newcommand, \\noindent 등)의 \\n은 보존하고,
+    줄 끝이나 독립적인 \\n만 실제 줄바꿈으로 변환합니다.
+    """
+    # \n 뒤에 알파벳이 오면 LaTeX 명령어이므로 보존
+    # \n 뒤에 알파벳이 없으면 (줄 끝, 공백, 다른 특수문자) 줄바꿈으로 변환
+    return re.sub(r'\\n(?![a-zA-Z])', '\n', text)
+
+
 class LatexContentFilter:
     """LaTeX 파일에서 번역 가능한 콘텐츠만 필터링"""
 
@@ -205,8 +216,9 @@ class OpenAIProvider(LLMProvider):
                 for line_obj in translation_lines:
                     line_id = line_obj["id"]
                     line_text = line_obj["text"]
-                    # 이스케이프된 줄바꿈 문자를 실제 줄바꿈으로 변환
-                    line_text = line_text.replace('\\n', '\n')
+                    # 줄 끝의 리터럴 \n만 실제 줄바꿈으로 변환
+                    # (LaTeX 명령어 \newcommand, \noindent 등을 보호)
+                    line_text = _safe_newline_replace(line_text)
 
                     # 같은 ID가 여러 개 있을 수 있음 (라인 분할된 경우)
                     if line_id in result:
@@ -383,8 +395,8 @@ class ClaudeProvider(LLMProvider):
                 for line_obj in translation_lines:
                     line_id = line_obj["id"]
                     line_text = line_obj["text"]
-                    # 이스케이프된 줄바꿈 문자를 실제 줄바꿈으로 변환
-                    line_text = line_text.replace('\\n', '\n')
+                    # 줄 끝의 리터럴 \n만 실제 줄바꿈으로 변환
+                    line_text = _safe_newline_replace(line_text)
 
                     # 같은 ID가 여러 개 있을 수 있음 (라인 분할된 경우)
                     if line_id in result:
