@@ -261,7 +261,7 @@ class LatexCompiler:
                 list_depth += 1
             if re.search(r'\\end\{(itemize|enumerate|description)\}', line):
                 list_depth = max(0, list_depth - 1)
-            if list_depth == 0 and re.match(r'\s*\\item\b', line):
+            if list_depth == 0 and line.lstrip().startswith('\\item '):
                 # tcolorbox 등 skip 환경 밖에 떠 있는 \item
                 lines[idx] = '%% [auto-fixed] ' + line
                 fixed_count += 1
