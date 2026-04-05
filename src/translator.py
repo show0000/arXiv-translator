@@ -984,6 +984,17 @@ class LatexTranslator:
                 if translated_text is None:
                     translated_text = original_line
                     fallback_count += 1
+                else:
+                    # 중괄호 균형 검증 — 원본과 비교하여 불균형이면 원문 유지
+                    orig_depth = original_line.count('{') - original_line.count('}')
+                    trans_depth = translated_text.count('{') - translated_text.count('}')
+                    if orig_depth != trans_depth:
+                        logger.warning(
+                            f"⚠ 줄 {original_idx} 중괄호 불균형 "
+                            f"(원본={orig_depth}, 번역={trans_depth}) — 원문 유지"
+                        )
+                        translated_text = original_line
+                        fallback_count += 1
                 # 줄바꿈이 없으면 추가 (LaTeX 구조 보존)
                 if translated_text and not translated_text.endswith('\n'):
                     translated_text += '\n'
