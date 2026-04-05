@@ -254,18 +254,21 @@ class LatexCompiler:
             fixed_count += 1
 
         # 3. list 환경 밖의 \item 감지 및 주석 처리
+        list_pattern = re.compile(r'\\(begin|end)\{(itemize|enumerate|description)\}')
         lines = content.split('\n')
         list_depth = 0
         for idx, line in enumerate(lines):
-            if re.search(r'\\begin\{(itemize|enumerate|description)\}', line):
-                list_depth += 1
-            if re.search(r'\\end\{(itemize|enumerate|description)\}', line):
-                list_depth = max(0, list_depth - 1)
+            # \item 체크는 \begin/\end 처리 전에 수행
+            # (같은 줄에 \item과 \end{itemize}가 있으면 \item은 아직 list 안)
             if list_depth == 0 and line.lstrip().startswith('\\item '):
-                # tcolorbox 등 skip 환경 밖에 떠 있는 \item
                 lines[idx] = '%% [auto-fixed] ' + line
                 fixed_count += 1
                 logger.debug(f"  고아 \\item 주석 처리: 줄 {idx}")
+            for m in list_pattern.finditer(line):
+                if m.group(1) == 'begin':
+                    list_depth += 1
+                else:
+                    list_depth = max(0, list_depth - 1)
         content = '\n'.join(lines)
 
         if fixed_count > 0:
