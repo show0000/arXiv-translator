@@ -613,6 +613,9 @@ class LatexTranslator:
             if should_translate and trans_id is not None:
                 # 번역된 내용 가져오기
                 translated_text = all_translations.get(trans_id, original_line)
+                # 줄바꿈이 없으면 추가 (LaTeX 구조 보존)
+                if translated_text and not translated_text.endswith('\n'):
+                    translated_text += '\n'
                 result_lines.append(translated_text)
             else:
                 # 번역 불필요한 라인은 원본 그대로
