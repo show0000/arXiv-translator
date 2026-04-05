@@ -412,10 +412,18 @@ class ClaudeProvider(LLMProvider):
         from anthropic import Anthropic
         self.client = Anthropic(api_key=api_key)
         self.model = model
+        self._cache_read_tokens = 0
+        self._cache_create_tokens = 0
         logger.info(f"Claude Provider 초기화: {model}")
 
     def get_model_name(self) -> str:
         return f"Claude/{self.model}"
+
+    def get_usage_summary(self) -> dict:
+        summary = super().get_usage_summary()
+        summary["cache_read_tokens"] = self._cache_read_tokens
+        summary["cache_create_tokens"] = self._cache_create_tokens
+        return summary
 
     def translate(
         self,
@@ -437,7 +445,13 @@ class ClaudeProvider(LLMProvider):
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=16384,
-                    system=system_prompt,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral"}
+                        }
+                    ],
                     messages=[
                         {"role": "user", "content": text}
                     ]
@@ -448,6 +462,11 @@ class ClaudeProvider(LLMProvider):
                     self.total_input_tokens += response.usage.input_tokens
                     self.total_output_tokens += response.usage.output_tokens
                     self.total_requests += 1
+                    # 캐시 히트 토큰 추적
+                    cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                    cache_create = getattr(response.usage, 'cache_creation_input_tokens', 0) or 0
+                    self._cache_read_tokens += cache_read
+                    self._cache_create_tokens += cache_create
 
                 # Claude는 JSON 응답을 텍스트로 반환
                 translated_content = response.content[0].text
@@ -824,5 +843,9 @@ class LatexTranslator:
         logger.info(f"  Input 토큰: {usage['total_input_tokens']:,}")
         logger.info(f"  Output 토큰: {usage['total_output_tokens']:,}")
         logger.info(f"  총 토큰: {usage['total_tokens']:,}")
+        # Claude 캐시 정보 (있는 경우)
+        if usage.get('cache_read_tokens', 0) > 0 or usage.get('cache_create_tokens', 0) > 0:
+            logger.info(f"  캐시 생성: {usage['cache_create_tokens']:,} 토큰")
+            logger.info(f"  캐시 히트: {usage['cache_read_tokens']:,} 토큰 (90% 할인 적용)")
 
         return translated_files
