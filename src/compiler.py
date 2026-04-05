@@ -193,6 +193,57 @@ class LatexCompiler:
             logger.error(f"폰트 설정 추가 실패: {e}")
             raise
 
+    def fix_spurious_commands(self, tex_file: Path) -> None:
+        """번역 과정에서 LLM이 생성한 잘못된 제어 시퀀스를 수정
+
+        원본에 없는 \\word 패턴을 찾아 백슬래시를 제거합니다.
+        예: \\maximiz → maximiz, \\compact → compact
+        """
+        # 원본 파일에서 사용된 명령어 수집
+        backup_file = tex_file.with_suffix('.tex_original')
+        if not backup_file.exists():
+            return
+
+        original_content = backup_file.read_text(encoding='utf-8')
+        # 원본에서 사용된 모든 \command 패턴 수집
+        original_cmds = set(re.findall(r'\\([a-zA-Z]+)', original_content))
+        # LaTeX 내장 명령어 추가 (원본에 없어도 유효한 것들)
+        builtin_cmds = {
+            'textbf', 'textit', 'emph', 'text', 'mathrm', 'mathbf', 'mathit',
+            'section', 'subsection', 'subsubsection', 'paragraph',
+            'begin', 'end', 'item', 'label', 'ref', 'cite', 'caption',
+            'footnote', 'footnotetext', 'thanks',
+            'centering', 'includegraphics', 'usepackage', 'newcommand',
+            'renewcommand', 'def', 'let', 'hline', 'toprule', 'midrule',
+            'bottomrule', 'cline', 'multicolumn', 'multirow',
+            'vspace', 'hspace', 'noindent', 'par', 'newline', 'linebreak',
+            'small', 'footnotesize', 'scriptsize', 'tiny', 'large', 'Large',
+            'LARGE', 'huge', 'Huge', 'normalsize',
+            'it', 'bf', 'rm', 'sf', 'tt', 'sc', 'sl',
+        }
+        valid_cmds = original_cmds | builtin_cmds
+
+        # 번역된 파일에서 잘못된 명령어 탐지 및 수정
+        content = tex_file.read_text(encoding='utf-8')
+        translated_cmds = set(re.findall(r'\\([a-zA-Z]+)', content))
+        spurious = translated_cmds - valid_cmds
+
+        if not spurious:
+            return
+
+        fixed_count = 0
+        for cmd in spurious:
+            # \cmd → cmd (백슬래시 제거)
+            pattern = re.compile(r'\\' + re.escape(cmd) + r'(?![a-zA-Z])')
+            if pattern.search(content):
+                content = pattern.sub(cmd, content)
+                fixed_count += 1
+                logger.debug(f"  잘못된 명령어 수정: \\{cmd} → {cmd}")
+
+        if fixed_count > 0:
+            tex_file.write_text(content, encoding='utf-8')
+            logger.info(f"🔧 잘못된 제어 시퀀스 {fixed_count}개 수정")
+
     def compile_to_pdf(
         self,
         tex_file: Path,
@@ -340,6 +391,9 @@ class LatexCompiler:
         for tex_file in all_tex_files:
             if tex_file != main_tex:
                 self.remove_conflicting_packages(tex_file)
+
+        # 번역으로 생긴 잘못된 제어 시퀀스 정리
+        self.fix_spurious_commands(main_tex)
 
         # 메인 파일에 폰트 설정 추가 (내부에서 충돌 패키지 제거 포함)
         self.add_font_configuration(main_tex, main_font, mono_font)
