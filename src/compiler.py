@@ -207,7 +207,12 @@ class LatexCompiler:
         translated_lines = tex_file.read_text(encoding='utf-8').splitlines(keepends=True)
 
         # 원본에서 사용된 유효한 LaTeX 명령어 수집
-        original_content = ''.join(original_lines)
+        # 디렉토리 내 모든 _original 파일에서 명령어 수집 (preamble 등 포함)
+        original_content = ''
+        for orig_file in tex_file.parent.rglob('*.tex_original'):
+            original_content += orig_file.read_text(encoding='utf-8')
+        if not original_content:
+            original_content = ''.join(original_lines)
         valid_cmds = set(re.findall(r'\\([a-zA-Z]+)', original_content))
         valid_cmds.update({
             'textbf', 'textit', 'emph', 'text', 'mathrm', 'mathbf', 'mathit',
