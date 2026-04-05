@@ -547,20 +547,21 @@ class LatexTranslator:
         self.target_language = target_language
         self.custom_instruction = custom_instruction
         self.content_filter = LatexContentFilter()
-        self._math_placeholders: dict[str, str] = {}
+    _math_counter = 0  # 클래스 레벨 카운터로 청크 내 고유 ID 보장
 
-    def _protect_math(self, text: str) -> str:
+    @classmethod
+    def _protect_math(cls, text: str) -> tuple[str, dict[str, str]]:
         """인라인 수식($...$)과 디스플레이 수식($$...$$, \\[...\\])을 플레이스홀더로 치환
 
-        LLM이 수식 내부의 $ 쌍을 혼동하지 않도록 보호합니다.
+        Returns:
+            (치환된 텍스트, {플레이스홀더: 원본 수식} 매핑)
         """
-        self._math_placeholders = {}
-        counter = [0]
+        placeholders = {}
 
         def _replace(match):
-            key = f"%%MATH_{counter[0]}%%"
-            self._math_placeholders[key] = match.group(0)
-            counter[0] += 1
+            key = f"%%MATH_{cls._math_counter}%%"
+            placeholders[key] = match.group(0)
+            cls._math_counter += 1
             return key
 
         # 순서 중요: $$...$$ 먼저, 그 다음 $...$
@@ -571,11 +572,12 @@ class LatexTranslator:
         # 3. 인라인 수식 $...$ (빈 것 제외, 줄바꿈 없는 것만)
         text = re.sub(r'\$(?!\$)([^\$\n]+?)\$', _replace, text)
 
-        return text
+        return text, placeholders
 
-    def _restore_math(self, text: str) -> str:
+    @staticmethod
+    def _restore_math(text: str, placeholders: dict[str, str]) -> str:
         """플레이스홀더를 원본 수식으로 복원"""
-        for key, original in self._math_placeholders.items():
+        for key, original in placeholders.items():
             text = text.replace(key, original)
         return text
 
@@ -750,11 +752,13 @@ class LatexTranslator:
         Returns:
             {line_id: translated_text} 딕셔너리
         """
-        # 수식을 플레이스홀더로 보호
-        protected_lines = [
-            (line_id, self._protect_math(text))
-            for line_id, text in chunk
-        ]
+        # 수식을 플레이스홀더로 보호 (줄별 매핑 보존)
+        all_placeholders: dict[str, str] = {}
+        protected_lines = []
+        for line_id, text in chunk:
+            protected_text, placeholders = self._protect_math(text)
+            all_placeholders.update(placeholders)
+            protected_lines.append((line_id, protected_text))
 
         # ID 기반 JSON 형식으로 변환
         chunk_data = {
@@ -778,7 +782,7 @@ class LatexTranslator:
 
         # 플레이스홀더를 원본 수식으로 복원
         restored_dict = {
-            line_id: self._restore_math(text)
+            line_id: self._restore_math(text, all_placeholders)
             for line_id, text in translated_dict.items()
         }
 
@@ -822,10 +826,13 @@ class LatexTranslator:
         logger.info(f"📝 캡션 {len(captions)}개 번역 중...")
 
         # 캡션 텍스트를 하나의 청크로 모아 번역 (수식 보호)
-        protected_captions = [
-            (i, start, end, self._protect_math(cap_text))
-            for i, (start, end, cap_text) in enumerate(captions)
-        ]
+        all_placeholders: dict[str, str] = {}
+        protected_captions = []
+        for i, (start, end, cap_text) in enumerate(captions):
+            ptext, placeholders = self._protect_math(cap_text)
+            all_placeholders.update(placeholders)
+            protected_captions.append((i, start, end, ptext))
+
         caption_data = {
             "lines": [
                 {"id": i, "text": ptext}
@@ -847,7 +854,17 @@ class LatexTranslator:
                 start, end, original_text = captions[i]
                 new_text = translated.get(i, original_text)
                 # 수식 플레이스홀더 복원 후 줄바꿈 정리
-                new_text = self._restore_math(new_text).strip()
+                new_text = self._restore_math(new_text, all_placeholders).strip()
+                # 중괄호 균형 검증 — 불균형이면 원문 유지
+                brace_depth = 0
+                for ch in new_text:
+                    if ch == '{':
+                        brace_depth += 1
+                    elif ch == '}':
+                        brace_depth -= 1
+                if brace_depth != 0:
+                    logger.warning(f"⚠ 캡션 {i} 중괄호 불균형 (depth={brace_depth}) — 원문 유지")
+                    new_text = original_text
                 content = content[:start] + new_text + content[end:]
 
             with open(tex_file, 'w', encoding='utf-8') as f:
