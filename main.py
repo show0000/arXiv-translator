@@ -6,6 +6,7 @@ arXiv 논문을 다운로드하고 LaTeX 소스를 번역하여 한글 PDF를 �
 
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -231,6 +232,14 @@ def main(
         if not pdf_file:
             logger.error("❌ PDF 생성 실패")
             sys.exit(1)
+
+        # PDF 파일명을 {arxiv_id}_{title}.pdf 형식으로 변경
+        safe_title = re.sub(r'[^\w\s-]', '', metadata['title'])  # 특수문자 제거
+        safe_title = re.sub(r'\s+', '_', safe_title.strip())     # 공백 → _
+        final_name = f"{metadata['id']}_{safe_title}.pdf"
+        final_pdf = pdf_file.parent / final_name
+        pdf_file.rename(final_pdf)
+        pdf_file = final_pdf
 
         logger.info(f"✓ PDF 생성: {pdf_file}")
         logger.info("")
