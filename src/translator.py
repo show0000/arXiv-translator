@@ -1051,14 +1051,27 @@ class LatexTranslator:
                     translated_text = original_line
                     fallback_count += 1
                 else:
-                    # 중괄호 균형 검증 — 원본과 비교하여 불균형이면 원문 유지
+                    safe = True
+                    # 1. 중괄호 균형 검증
                     orig_depth = original_line.count('{') - original_line.count('}')
                     trans_depth = translated_text.count('{') - translated_text.count('}')
                     if orig_depth != trans_depth:
-                        logger.warning(
-                            f"⚠ 줄 {original_idx} 중괄호 불균형 "
+                        logger.debug(
+                            f"줄 {original_idx} 중괄호 불균형 "
                             f"(원본={orig_depth}, 번역={trans_depth}) — 원문 유지"
                         )
+                        safe = False
+                    # 2. 환경 명령어 혼입 검증
+                    orig_begins = set(re.findall(r'\\begin\{([^}]+)\}', original_line))
+                    trans_begins = set(re.findall(r'\\begin\{([^}]+)\}', translated_text))
+                    orig_ends = set(re.findall(r'\\end\{([^}]+)\}', original_line))
+                    trans_ends = set(re.findall(r'\\end\{([^}]+)\}', translated_text))
+                    if trans_begins != orig_begins or trans_ends != orig_ends:
+                        logger.debug(
+                            f"줄 {original_idx} 환경 명령어 변경 감지 — 원문 유지"
+                        )
+                        safe = False
+                    if not safe:
                         translated_text = original_line
                         fallback_count += 1
                 # 줄바꿈이 없으면 추가 (LaTeX 구조 보존)
