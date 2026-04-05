@@ -240,6 +240,34 @@ class LatexCompiler:
                 fixed_count += 1
                 logger.debug(f"  잘못된 명령어 수정: \\{cmd} → {cmd}")
 
+        # 2. \(한글) 패턴 수정 — "vs.\ (right)" → "\(우)" 수식 모드 오인 방지
+        # \( 뒤에 한글이 오면 수식이 아니라 번역 오류
+        math_fix_count = 0
+        fixed_content = re.sub(
+            r'\\[(]([가-힣])',
+            lambda m: '(' + m.group(1),
+            content
+        )
+        if fixed_content != content:
+            math_fix_count = len(content) - len(fixed_content) + content.count(r'\(') - fixed_content.count(r'\(')
+            content = fixed_content
+            fixed_count += 1
+
+        # 3. list 환경 밖의 \item 감지 및 주석 처리
+        lines = content.split('\n')
+        list_depth = 0
+        for idx, line in enumerate(lines):
+            if re.search(r'\\begin\{(itemize|enumerate|description)\}', line):
+                list_depth += 1
+            if re.search(r'\\end\{(itemize|enumerate|description)\}', line):
+                list_depth = max(0, list_depth - 1)
+            if list_depth == 0 and re.match(r'\s*\\item\b', line):
+                # tcolorbox 등 skip 환경 밖에 떠 있는 \item
+                lines[idx] = '%% [auto-fixed] ' + line
+                fixed_count += 1
+                logger.debug(f"  고아 \\item 주석 처리: 줄 {idx}")
+        content = '\n'.join(lines)
+
         if fixed_count > 0:
             tex_file.write_text(content, encoding='utf-8')
             logger.info(f"🔧 잘못된 제어 시퀀스 {fixed_count}개 수정")
