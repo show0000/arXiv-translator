@@ -253,22 +253,29 @@ class LatexCompiler:
             content = fixed_content
             fixed_count += 1
 
-        # 3. list 환경 밖의 \item 감지 및 주석 처리
+        # 3. list 환경 관련 자동 수정
         list_pattern = re.compile(r'\\(begin|end)\{(itemize|enumerate|description)\}')
         lines = content.split('\n')
         list_depth = 0
+        prev_was_begin_list = False
         for idx, line in enumerate(lines):
-            # \item 체크는 \begin/\end 처리 전에 수행
-            # (같은 줄에 \item과 \end{itemize}가 있으면 \item은 아직 list 안)
-            if list_depth == 0 and line.lstrip().startswith('\\item '):
+            stripped = line.lstrip()
+            # 고아 \item 주석 처리
+            if list_depth == 0 and stripped.startswith('\\item '):
                 lines[idx] = '%% [auto-fixed] ' + line
                 fixed_count += 1
-                logger.debug(f"  고아 \\item 주석 처리: 줄 {idx}")
+            # \begin{itemize} 다음 줄에 \item 없으면 추가
+            elif prev_was_begin_list and stripped and not stripped.startswith('\\item') and not stripped.startswith('%'):
+                lines[idx] = '    \\item ' + line.lstrip()
+                fixed_count += 1
+            prev_was_begin_list = False
             for m in list_pattern.finditer(line):
                 if m.group(1) == 'begin':
                     list_depth += 1
+                    prev_was_begin_list = True
                 else:
                     list_depth = max(0, list_depth - 1)
+                    prev_was_begin_list = False
         content = '\n'.join(lines)
 
         if fixed_count > 0:
