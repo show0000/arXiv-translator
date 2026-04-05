@@ -39,6 +39,7 @@ class LatexContentFilter:
             'lstlisting', 'verbatim', 'verbatim*', 'minted',
             'tikzpicture', 'algorithm', 'algorithmic',
             'figure', 'figure*', 'subfigure',
+            'table', 'table*', 'tabular', 'tabularx', 'longtable',
             'tcolorbox', 'tcb@savebox',
         ]
 
@@ -576,10 +577,12 @@ class LatexTranslator:
 
         # 1. 디스플레이 수식 $$...$$
         text = re.sub(r'\$\$.+?\$\$', _replace, text, flags=re.DOTALL)
-        # 2. \[...\]
+        # 2. \[...\]  디스플레이 수식
         text = re.sub(r'\\\[.+?\\\]', _replace, text, flags=re.DOTALL)
         # 3. 인라인 수식 $...$ (빈 것 제외, 줄바꿈 없는 것만)
         text = re.sub(r'\$(?!\$)([^\$\n]+?)\$', _replace, text)
+        # 4. 인라인 수식 \(...\) (여러 줄에 걸칠 수 있음)
+        text = re.sub(r'\\\(.+?\\\)', _replace, text, flags=re.DOTALL)
         # 4. 백슬래시+공백 패턴: "vs.\ ", "e.g.\ ", "i.e.\ " 등
         #    LLM이 "vs.\ word" → "대 \word"로 번역하여 undefined command 생성 방지
         text = re.sub(r'(?<=[a-zA-Z.])\\ (?=[a-zA-Z])', _replace, text)
