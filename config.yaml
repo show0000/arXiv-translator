@@ -22,3 +22,4 @@ download_dir: arxiv_downloads   # 다운로드 디렉토리
 # 기타
 force_download: false   # 기존 파일 무시하고 재다운로드
 compile_twice: true     # 참조 해결을 위해 2번 컴파일
+verbose: false          # true: ERROR/WARNING 콘솔 로그 출력

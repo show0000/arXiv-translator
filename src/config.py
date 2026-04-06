@@ -39,6 +39,7 @@ class TranslationConfig:
     # 기타
     force_download: bool = False
     compile_twice: bool = True
+    verbose: bool = False
 
     def __post_init__(self):
         """초기화 후 처리"""

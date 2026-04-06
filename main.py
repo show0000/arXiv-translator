@@ -118,7 +118,7 @@ def main(
         # 설정 파일 생성
         python main.py --generate-config
     """
-    # 상세 로그 설정
+    # 상세 로그 설정 (CLI --verbose 또는 config verbose)
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
@@ -159,6 +159,10 @@ def main(
             output_dir=output_dir,
             force_download=force,
         )
+
+        # config의 verbose 설정 적용 (CLI --verbose가 없어도 config에서 활성화 가능)
+        if translation_config.verbose and not verbose:
+            logging.getLogger().setLevel(logging.DEBUG)
 
         # API 키 환경 변수 확인
         if not translation_config.api_key:
