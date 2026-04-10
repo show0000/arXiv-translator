@@ -77,6 +77,14 @@ class LatexContentFilter:
         if not stripped or stripped.startswith('%'):
             return False
 
+        # Appendix 감지 시 References 섹션 상태 해제
+        # (\bibliography/\bibliographystyle 뒤에 \appendix가 오는 경우 대응)
+        if re.match(r'\\appendix\b', stripped):
+            if self.in_reference_section:
+                logger.info("Appendix 감지 - References 섹션 상태 해제")
+                self.in_reference_section = False
+            return False
+
         # References 섹션 감지
         if re.match(r'\\bibliography\{|\\begin\{thebibliography\}|\\bibliographystyle\{', stripped):
             self.in_reference_section = True
@@ -335,7 +343,15 @@ Translation Instructions:
    b. Do not translate examples, especially if they contain technical content or are essential for context.
 
 3. LaTeX Commands:
-   - Do not translate LaTeX commands, functions, environments, or specific LaTeX-related keywords (e.g., \\section{{}}, \\begin{{}}, \\end{{}}, \\cite{{}}, \\ref{{}}, or TikZ syntax such as /tikz/fill, /tikz/draw, etc.) into {target_language}. They must be output exactly as they are.
+   - Do not translate LaTeX command names, function names, environment names, or LaTeX keywords themselves (e.g., the tokens \\section, \\subsection, \\subsubsection, \\paragraph, \\begin, \\end, \\cite, \\ref, \\label, or TikZ syntax such as /tikz/fill, /tikz/draw). The command/environment names must be output exactly as they are.
+   - HOWEVER, the human-readable text INSIDE the braces of sectioning and text commands MUST be translated. For example:
+     * \\section{{Introduction}} → \\section{{서론}}
+     * \\subsection{{Related Work}} → \\subsection{{관련 연구}}
+     * \\subsubsection{{Layer-Position Heatmaps}} → \\subsubsection{{레이어-위치 히트맵}}
+     * \\paragraph{{Judge Instructions.}} → \\paragraph{{판정자 지시사항.}}
+     * \\caption{{A figure showing ...}} → \\caption{{...을 보여주는 그림}}
+     * \\textbf{{bold text}} → \\textbf{{굵은 글씨}}
+   - Do NOT translate arguments that are identifiers, keys, or file names (e.g., \\label{{sec:intro}}, \\ref{{fig:1}}, \\cite{{smith2020}}, \\includegraphics{{file.png}}). Those stay exactly as-is.
    - Only translate the provided text without making any additional modifications.
 
 4. Citation and Reference Keys:
