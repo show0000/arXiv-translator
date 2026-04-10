@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import tarfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -23,9 +24,109 @@ class ArxivDownloader:
     ARXIV_API_URL = "https://export.arxiv.org/api/query"
     ARXIV_SOURCE_URL = "https://arxiv.org/src"
 
+    # arXiv API 이용 약관: contact 정보를 포함한 User-Agent 필수
+    # https://info.arxiv.org/help/api/tou.html
+    USER_AGENT = (
+        "arxiv-translator/1.0 "
+        "(+https://github.com/show0000/arXiv-translator)"
+    )
+    # arXiv 권장: API 호출 간 최소 3초 간격
+    MIN_REQUEST_INTERVAL = 3.0
+    MAX_RETRIES = 5
+
     def __init__(self, download_dir: str = "arxiv_downloads"):
         self.download_dir = Path(download_dir)
         self.download_dir.mkdir(parents=True, exist_ok=True)
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": self.USER_AGENT})
+        self._last_request_time = 0.0
+
+    def _rate_limit(self) -> None:
+        """API 호출 간 최소 간격 보장"""
+        elapsed = time.monotonic() - self._last_request_time
+        if elapsed < self.MIN_REQUEST_INTERVAL:
+            sleep_time = self.MIN_REQUEST_INTERVAL - elapsed
+            logger.debug(f"rate limit 준수를 위해 {sleep_time:.1f}초 대기")
+            time.sleep(sleep_time)
+        self._last_request_time = time.monotonic()
+
+    def _request_with_retry(
+        self,
+        url: str,
+        stream: bool = False,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """429 및 일시적 오류에 대해 재시도하는 GET 요청
+
+        Args:
+            url: 요청 URL
+            stream: 스트림 모드 (대용량 다운로드용)
+            timeout: 요청 타임아웃 (초)
+
+        Returns:
+            성공한 응답 객체 (stream=True면 호출자가 닫아야 함)
+
+        Raises:
+            requests.RequestException: 재시도 소진 후에도 실패한 경우
+        """
+        last_exc: Optional[Exception] = None
+        for attempt in range(self.MAX_RETRIES):
+            self._rate_limit()
+            try:
+                response = self.session.get(url, stream=stream, timeout=timeout)
+
+                # 429: Too Many Requests — Retry-After 헤더 존중
+                if response.status_code == 429:
+                    retry_after_header = response.headers.get('Retry-After')
+                    if retry_after_header:
+                        try:
+                            retry_after = int(retry_after_header)
+                        except ValueError:
+                            retry_after = 30
+                    else:
+                        # 지수 백오프: 10s, 20s, 40s, 80s, 최대 120s
+                        retry_after = min(10 * (2 ** attempt), 120)
+                    logger.warning(
+                        f"arXiv rate limit (429). {retry_after}초 대기 후 재시도 "
+                        f"({attempt + 1}/{self.MAX_RETRIES})"
+                    )
+                    response.close()
+                    time.sleep(retry_after)
+                    continue
+
+                response.raise_for_status()
+                return response
+
+            except requests.HTTPError as e:
+                last_exc = e
+                # 4xx (429 제외)는 재시도해도 의미 없으므로 즉시 포기
+                status = e.response.status_code if e.response is not None else 0
+                if 400 <= status < 500 and status != 429:
+                    raise
+                if attempt == self.MAX_RETRIES - 1:
+                    raise
+                wait = min(5 * (2 ** attempt), 60)
+                logger.warning(
+                    f"HTTP 에러: {e}. {wait}초 대기 후 재시도 "
+                    f"({attempt + 1}/{self.MAX_RETRIES})"
+                )
+                time.sleep(wait)
+
+            except requests.RequestException as e:
+                last_exc = e
+                if attempt == self.MAX_RETRIES - 1:
+                    raise
+                wait = min(5 * (2 ** attempt), 60)
+                logger.warning(
+                    f"네트워크 에러: {e}. {wait}초 대기 후 재시도 "
+                    f"({attempt + 1}/{self.MAX_RETRIES})"
+                )
+                time.sleep(wait)
+
+        # 재시도 루프를 모두 소진한 경우 (모두 429였던 경우)
+        raise requests.RequestException(
+            f"최대 재시도 횟수 초과: {url} (마지막 오류: {last_exc})"
+        )
 
     def extract_arxiv_id(self, url_or_id: str) -> str:
         """URL 또는 arXiv ID에서 순수 ID 추출
@@ -73,8 +174,7 @@ class ArxivDownloader:
         api_url = f"{self.ARXIV_API_URL}?id_list={arxiv_id}"
 
         try:
-            response = requests.get(api_url, timeout=30)
-            response.raise_for_status()
+            response = self._request_with_retry(api_url, timeout=30)
         except requests.RequestException as e:
             logger.error(f"arXiv API 호출 실패: {e}")
             raise
@@ -125,17 +225,16 @@ class ArxivDownloader:
         source_url = f"{self.ARXIV_SOURCE_URL}/{arxiv_id}"
 
         try:
-            with requests.get(source_url, stream=True, timeout=60) as r:
-                r.raise_for_status()
-
+            response = self._request_with_retry(source_url, stream=True, timeout=60)
+            with response:
                 # 파일 크기 확인
-                total_size = int(r.headers.get('content-length', 0))
+                total_size = int(response.headers.get('content-length', 0))
                 logger.info(f"파일 크기: {total_size / 1024 / 1024:.2f} MB")
 
                 # 다운로드
                 with open(tar_file_path, 'wb') as f:
                     downloaded = 0
-                    for chunk in r.iter_content(chunk_size=8192):
+                    for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
                         downloaded += len(chunk)
 
