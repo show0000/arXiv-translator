@@ -55,12 +55,15 @@ class LatexContentFilter:
         self.current_env = None
         self.in_reference_section = False
         self.env_stack = []
+        # 디스플레이 수학 모드 (\[...\] 또는 $$...$$) 다중 줄 추적
+        self.in_display_math = False
 
     def reset(self):
         """상태 초기화"""
         self.current_env = None
         self.in_reference_section = False
         self.env_stack = []
+        self.in_display_math = False
 
     def should_translate_line(self, line: str) -> bool:
         """라인을 번역해야 하는지 판단
@@ -125,8 +128,33 @@ class LatexContentFilter:
         if self.env_stack and self.env_stack[-1] == 'tcolorbox':
             return False
 
-        # 인라인 수학 모드 체크 ($ ... $ 또는 \[ ... \])
-        if re.search(r'\$\$.*\$\$|\\\[.*\\\]', stripped):
+        # 디스플레이 수학 모드 다중 줄 추적 (\[...\] 또는 $$...$$)
+        # 이미 수학 모드 내부인 경우: 종료 토큰 확인 후 스킵
+        if self.in_display_math:
+            if r'\]' in stripped or '$$' in stripped:
+                self.in_display_math = False
+            return False
+
+        # 이 줄에서 디스플레이 수학 시작/종료 감지
+        # \[...\] 또는 $$...$$가 한 줄에 완결되면 건너뛰고 종료
+        has_open_bracket = r'\[' in stripped
+        has_close_bracket = r'\]' in stripped
+        # $$ 개수 (홀수면 모드 변경)
+        dollar_count = stripped.count('$$')
+
+        if has_open_bracket and has_close_bracket:
+            # 한 줄에 \[...\] 완결
+            return False
+        if has_open_bracket and not has_close_bracket:
+            # 다중 줄 \[ 시작
+            self.in_display_math = True
+            return False
+        if dollar_count > 0 and dollar_count % 2 == 1:
+            # $$ 토큰이 홀수개 → 모드 전환
+            self.in_display_math = True
+            return False
+        if dollar_count > 0 and dollar_count % 2 == 0:
+            # $$ 짝수개 → 한 줄에 완결되어 건너뛰기
             return False
 
         # LaTeX 명령어만 있는 라인 (번역할 텍스트가 없음)
