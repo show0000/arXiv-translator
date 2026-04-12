@@ -41,6 +41,7 @@ class LatexContentFilter:
             'figure', 'figure*', 'subfigure',
             'table', 'table*', 'tabular', 'tabularx', 'longtable',
             'tcolorbox', 'tcb@savebox',
+            'thebibliography',
         ]
 
         # 번역 대상 명령어 (인자를 번역해야 하는 명령어)
@@ -53,7 +54,6 @@ class LatexContentFilter:
 
         # 상태 추적
         self.current_env = None
-        self.in_reference_section = False
         self.env_stack = []
         # 디스플레이 수학 모드 (\[...\] 또는 $$...$$) 다중 줄 추적
         self.in_display_math = False
@@ -61,7 +61,6 @@ class LatexContentFilter:
     def reset(self):
         """상태 초기화"""
         self.current_env = None
-        self.in_reference_section = False
         self.env_stack = []
         self.in_display_math = False
 
@@ -80,22 +79,20 @@ class LatexContentFilter:
         if not stripped or stripped.startswith('%'):
             return False
 
-        # Appendix 감지 시 References 섹션 상태 해제
-        # (\bibliography/\bibliographystyle 뒤에 \appendix가 오는 경우 대응)
+        # \appendix는 번역 대상이 아닌 명령어이나, 스킵하지 않음
         if re.match(r'\\appendix\b', stripped):
-            if self.in_reference_section:
-                logger.info("Appendix 감지 - References 섹션 상태 해제")
-                self.in_reference_section = False
             return False
 
-        # References 섹션 감지
-        if re.match(r'\\bibliography\{|\\begin\{thebibliography\}|\\bibliographystyle\{', stripped):
-            self.in_reference_section = True
-            logger.info("References 섹션 감지 - 이후 내용 번역 건너뛰기")
+        # \bibliography{file}, \bibliographystyle{style}는 단일 명령어 — 건너뛰기
+        # 이 줄 자체는 번역 불필요하지만 이후 내용(보충자료 등)은 번역 대상
+        if re.match(r'\\bibliographystyle\{', stripped):
+            return False
+        if re.match(r'\\bibliography\{', stripped):
             return False
 
-        if self.in_reference_section:
-            return False
+        # 인라인 참고문헌 환경은 skip_environments로 처리
+        # (\begin{thebibliography}...\end{thebibliography} 내부 스킵)
+        # → 이미 env_stack 기반으로 동작하므로 별도 플래그 불필요
 
         # 환경 종료 감지 (시작보다 먼저 체크 - 같은 줄에 begin/end 있을 수 있음)
         end_match = re.search(r'\\end\{([^}]+)\}', stripped)
