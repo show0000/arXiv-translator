@@ -325,7 +325,12 @@ class LatexCompiler:
             'begin', 'end', 'item', 'label', 'ref', 'cite', 'caption',
             'footnote', 'footnotetext', 'thanks',
             'centering', 'includegraphics', 'usepackage', 'newcommand',
-            'renewcommand', 'providecommand', 'def', 'let', 'hline', 'toprule', 'midrule',
+            'renewcommand', 'providecommand', 'DeclareMathOperator',
+            'def', 'let', 'hline', 'toprule', 'midrule',
+            # xeCJK/fontspec 관련 (폰트 설정 블록 보호)
+            'setCJKmainfont', 'setCJKsansfont', 'setCJKmonofont',
+            'xeCJKsetup', 'setmainfont', 'setsansfont', 'setmonofont',
+            'IfFontExistsTF',
             'bottomrule', 'cline', 'multicolumn', 'multirow',
             'vspace', 'hspace', 'noindent', 'par', 'newline', 'linebreak',
             'small', 'footnotesize', 'scriptsize', 'tiny', 'large', 'Large',
@@ -390,7 +395,8 @@ class LatexCompiler:
                 lines[idx] = '%% [auto-fixed] ' + lines[idx]
                 fixed_count += 1
             # \begin{itemize} 다음에 \item 없으면 추가
-            elif prev_was_begin_list and stripped and not stripped.startswith('\\item') and not stripped.startswith('%') and not stripped.startswith('\\begin'):
+            # 단, \setlength/\renewcommand 등 설정 명령어는 리스트 환경 정의 내부이므로 제외
+            elif prev_was_begin_list and stripped and not stripped.startswith('\\item') and not stripped.startswith('%') and not stripped.startswith('\\begin') and not stripped.startswith('\\setlength') and not stripped.startswith('\\renewcommand') and not stripped.startswith('\\vspace'):
                 lines[idx] = '    \\item ' + lines[idx].lstrip()
                 fixed_count += 1
             prev_was_begin_list = False
