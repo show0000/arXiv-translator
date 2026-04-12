@@ -241,6 +241,12 @@ class LatexCompiler:
         """
         logger.info(f"폰트 설정 추가: {tex_file}")
 
+        # 이미 xeCJK 설정이 있으면 중복 삽입 방지
+        existing = tex_file.read_text(encoding='utf-8')
+        if r'\usepackage{xeCJK}' in existing:
+            logger.info("  폰트 설정 이미 존재 — 건너뜀")
+            return
+
         # XeLaTeX 충돌 패키지 제거
         self.remove_conflicting_packages(tex_file)
 
