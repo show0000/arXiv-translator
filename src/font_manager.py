@@ -260,7 +260,6 @@ class FontManager:
     BoldItalicFont={{{main_font}}},
     BoldItalicFeatures={{FakeBold=1.5, FakeSlant=0.2}}
 ]
-\\setCJKmonofont{{{mono_font}}}
 \\xeCJKsetup{{CJKspace=true}}
 """
 

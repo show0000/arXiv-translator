@@ -104,10 +104,11 @@ class LatexCompiler:
             r'\usepackage{fontenc}',
         ]
 
-        # 정규식 패턴으로도 매칭 (옵션이 다를 수 있으므로)
+        # 정규식 패턴으로도 매칭
+        # \usepackage 와 \RequirePackage 모두 매칭 (.cls/.sty 파일 대응)
         conflict_patterns = [
-            re.compile(r'\\usepackage(\[.*?\])?\{inputenc\}'),
-            re.compile(r'\\usepackage(\[.*?\])?\{fontenc\}'),
+            re.compile(r'\\(?:usepackage|RequirePackage)(\[.*?\])?\{inputenc\}'),
+            re.compile(r'\\(?:usepackage|RequirePackage)(\[.*?\])?\{fontenc\}'),
         ]
 
         try:
@@ -135,11 +136,99 @@ class LatexCompiler:
             logger.error(f"충돌 패키지 제거 실패: {e}")
             raise
 
+    # xeCJK보다 먼저 로드되면 fontspec과 충돌하는 폰트 패키지 목록
+    FONT_PACKAGES_TO_RELOCATE = {
+        'XCharter', 'charter', 'mathdesign',
+        'newtxtext', 'newtxmath', 'txfonts',
+        'newpxtext', 'newpxmath', 'pxfonts',
+        'mathpazo', 'palatino',
+        'mathptmx', 'times', 'helvet', 'courier',
+        'libertine', 'libertinus', 'libertinust1math',
+        'kpfonts', 'lmodern', 'tgtermes', 'tgpagella',
+        'stix', 'stix2',
+    }
+
+    def _relocate_font_packages(self, directory: Path) -> list[str]:
+        """cls/sty 파일에서 폰트 패키지를 주석 처리하고 재삽입용 라인 반환
+
+        XCharter 등의 폰트 패키지가 cls 파일에서 xeCJK 이전에 로드되면
+        fontspec과 충돌한다. 해당 패키지를 주석 처리하고, main tex에서
+        xeCJK 이후에 다시 로드할 수 있도록 라인을 수집한다.
+
+        Returns:
+            main tex 파일의 xeCJK 설정 이후에 삽입할 \\usepackage 라인 목록
+        """
+        relocated_lines = []
+        pattern = re.compile(
+            r'\\(?:RequirePackage|usepackage)(\[.*?\])?\{([^}]+)\}'
+        )
+
+        for ext in ("*.cls", "*.sty"):
+            for aux_file in directory.rglob(ext):
+                if "_original" in aux_file.name:
+                    continue
+                try:
+                    lines = aux_file.read_text(encoding='utf-8').splitlines(
+                        keepends=True
+                    )
+                    modified = False
+                    new_lines = []
+                    for line in lines:
+                        m = pattern.search(line)
+                        if m and not line.strip().startswith('%'):
+                            pkg_names = {
+                                p.strip() for p in m.group(2).split(',')
+                            }
+                            if pkg_names & self.FONT_PACKAGES_TO_RELOCATE:
+                                opts = m.group(1) or ''
+                                # \usepackage 형태로 재삽입할 라인 생성
+                                use_line = f"\\usepackage{opts}{{{m.group(2)}}}\n"
+                                relocated_lines.append(use_line)
+                                new_lines.append('% [relocated for xeCJK] ' + line)
+                                logger.info(
+                                    f"  폰트 패키지 재배치: {aux_file.name} → "
+                                    f"{m.group(2)}"
+                                )
+                                modified = True
+                                continue
+                        new_lines.append(line)
+                    if modified:
+                        aux_file.write_text(''.join(new_lines), encoding='utf-8')
+                except Exception as e:
+                    logger.warning(
+                        f"폰트 패키지 재배치 실패 ({aux_file.name}): {e}"
+                    )
+
+        return relocated_lines
+
+    def _soften_newcommands(self, tex_file: Path) -> None:
+        """보조 .tex 파일에서 \\newcommand를 \\providecommand로 변환
+
+        XeLaTeX + xeCJK가 로드하는 패키지(unicode-math, fontspec 등)가
+        이미 정의한 명령어와 논문 부속 파일의 \\newcommand가 충돌하면
+        "Command \\foo already defined" 에러가 발생한다.
+        \\providecommand로 바꾸면 기존 정의가 없을 때만 정의하므로
+        충돌을 방지할 수 있다.
+        """
+        try:
+            content = tex_file.read_text(encoding='utf-8')
+            # \newcommand → \providecommand (이미 존재하면 건너뜀)
+            new_content = content.replace(r'\newcommand', r'\providecommand')
+            if new_content != content:
+                count = content.count(r'\newcommand')
+                logger.debug(
+                    f"  {tex_file.name}: \\newcommand → \\providecommand ({count}건)"
+                )
+                tex_file.write_text(new_content, encoding='utf-8')
+        except Exception as e:
+            logger.warning(f"\\newcommand 변환 실패 ({tex_file.name}): {e}")
+
     def add_font_configuration(
         self,
         tex_file: Path,
         main_font: Optional[str] = None,
-        mono_font: Optional[str] = None
+        mono_font: Optional[str] = None,
+        extra_packages: Optional[list[str]] = None
     ) -> None:
         """한글 폰트 설정 추가
 
@@ -147,6 +236,8 @@ class LatexCompiler:
             tex_file: .tex 파일 경로
             main_font: 주 폰트 (없으면 자동 감지)
             mono_font: 고정폭 폰트 (없으면 자동 감지)
+            extra_packages: xeCJK 이후에 삽입할 패키지 라인 목록
+                (cls/sty에서 재배치된 폰트 패키지)
         """
         logger.info(f"폰트 설정 추가: {tex_file}")
 
@@ -159,24 +250,32 @@ class LatexCompiler:
             mono_font=mono_font
         )
 
+        # cls/sty에서 재배치된 폰트 패키지를 xeCJK 설정 뒤에 추가
+        if extra_packages:
+            pkg_block = '% Relocated font packages (moved after xeCJK)\n'
+            pkg_block += ''.join(extra_packages)
+            font_config = font_config + pkg_block
+
         try:
             with open(tex_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
 
-            # \\begin{document} 바로 앞에 폰트 설정 삽입
-            # 이 위치가 가장 안전: 모든 조건문/패키지 로드 이후, 문서 시작 전
+            # \\documentclass 바로 뒤에 폰트 설정 삽입
+            # xeCJK + 재배치 폰트 패키지가 \input{math_commands} 등
+            # 보조 파일보다 먼저 로드되어야 명령어 충돌을 방지할 수 있음
             inserted = False
             for i, line in enumerate(lines):
-                if r'\begin{document}' in line and not line.strip().startswith('%'):
-                    lines.insert(i, font_config + '\n')
+                if r'\documentclass' in line and not line.strip().startswith('%'):
+                    # \documentclass 줄 뒤에 삽입
+                    lines.insert(i + 1, font_config + '\n')
                     inserted = True
                     break
 
             if not inserted:
-                # fallback: 마지막 \documentclass 바로 뒤
-                for i in range(len(lines) - 1, -1, -1):
-                    if r'\documentclass' in lines[i] and not lines[i].strip().startswith('%'):
-                        lines.insert(i + 1, font_config + '\n')
+                # fallback: \begin{document} 앞
+                for i, line in enumerate(lines):
+                    if r'\begin{document}' in line and not line.strip().startswith('%'):
+                        lines.insert(i, font_config + '\n')
                         inserted = True
                         break
 
@@ -491,20 +590,38 @@ class LatexCompiler:
             logger.error("메인 .tex 파일을 찾을 수 없습니다.")
             return None
 
-        # 모든 .tex 파일에서 충돌 패키지 제거 (서브 파일 포함)
-        all_tex_files = [
-            f for f in directory.rglob("*.tex")
-            if "_original" not in f.name
-        ]
-        for tex_file in all_tex_files:
-            if tex_file != main_tex:
-                self.remove_conflicting_packages(tex_file)
+        # 모든 .tex, .cls, .sty 파일에서 충돌 패키지 제거
+        # .cls/.sty도 포함: 논문 동봉 클래스 파일이 fontenc/inputenc를
+        # \RequirePackage로 로드하면 xeCJK/fontspec과 충돌
+        auxiliary_files = []
+        for ext in ("*.tex", "*.cls", "*.sty"):
+            auxiliary_files.extend(
+                f for f in directory.rglob(ext)
+                if "_original" not in f.name
+            )
+        for aux_file in auxiliary_files:
+            if aux_file != main_tex:
+                self.remove_conflicting_packages(aux_file)
+
+        # 보조 .tex 파일에서 \newcommand 충돌 방지
+        # XeLaTeX + xeCJK 조합이 로드하는 패키지가 이미 정의한 명령어와
+        # 논문 부속 파일(math_commands.tex 등)의 \newcommand가 충돌할 수 있음
+        for aux_file in auxiliary_files:
+            if aux_file != main_tex:
+                self._soften_newcommands(aux_file)
+
+        # cls/sty 파일에서 xeCJK와 충돌하는 폰트 패키지를 주석 처리하고 수집
+        # (xeCJK 이후에 다시 로드해야 하므로)
+        relocated_packages = self._relocate_font_packages(directory)
 
         # 번역으로 생긴 잘못된 제어 시퀀스 정리
         self.sanitize_translated_tex(main_tex)
 
         # 메인 파일에 폰트 설정 추가 (내부에서 충돌 패키지 제거 포함)
-        self.add_font_configuration(main_tex, main_font, mono_font)
+        self.add_font_configuration(
+            main_tex, main_font, mono_font,
+            extra_packages=relocated_packages,
+        )
 
         # 컴파일
         pdf_file = self.compile_to_pdf(main_tex, output_dir)
