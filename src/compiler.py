@@ -319,7 +319,7 @@ class LatexCompiler:
             'begin', 'end', 'item', 'label', 'ref', 'cite', 'caption',
             'footnote', 'footnotetext', 'thanks',
             'centering', 'includegraphics', 'usepackage', 'newcommand',
-            'renewcommand', 'def', 'let', 'hline', 'toprule', 'midrule',
+            'renewcommand', 'providecommand', 'def', 'let', 'hline', 'toprule', 'midrule',
             'bottomrule', 'cline', 'multicolumn', 'multirow',
             'vspace', 'hspace', 'noindent', 'par', 'newline', 'linebreak',
             'small', 'footnotesize', 'scriptsize', 'tiny', 'large', 'Large',
@@ -603,19 +603,22 @@ class LatexCompiler:
             if aux_file != main_tex:
                 self.remove_conflicting_packages(aux_file)
 
-        # 보조 .tex 파일에서 \newcommand 충돌 방지
-        # XeLaTeX + xeCJK 조합이 로드하는 패키지가 이미 정의한 명령어와
-        # 논문 부속 파일(math_commands.tex 등)의 \newcommand가 충돌할 수 있음
-        for aux_file in auxiliary_files:
-            if aux_file != main_tex:
-                self._soften_newcommands(aux_file)
-
         # cls/sty 파일에서 xeCJK와 충돌하는 폰트 패키지를 주석 처리하고 수집
         # (xeCJK 이후에 다시 로드해야 하므로)
         relocated_packages = self._relocate_font_packages(directory)
 
-        # 번역으로 생긴 잘못된 제어 시퀀스 정리
-        self.sanitize_translated_tex(main_tex)
+        # 번역으로 생긴 잘못된 제어 시퀀스 정리 (메인 + 모든 서브 파일)
+        for tex_file in directory.rglob("*.tex"):
+            if "_original" not in tex_file.name and tex_file.with_suffix(
+                '.tex_original'
+            ).exists():
+                self.sanitize_translated_tex(tex_file)
+
+        # 보조 .tex 파일에서 \newcommand 충돌 방지
+        # sanitize 이후에 실행해야 sanitize가 \providecommand의 \ 를 제거하지 않음
+        for aux_file in auxiliary_files:
+            if aux_file != main_tex:
+                self._soften_newcommands(aux_file)
 
         # 메인 파일에 폰트 설정 추가 (내부에서 충돌 패키지 제거 포함)
         self.add_font_configuration(

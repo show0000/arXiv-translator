@@ -923,6 +923,10 @@ class LatexTranslator:
                 new_text = translated.get(i, original_text)
                 # 수식 플레이스홀더 복원 후 줄바꿈 정리
                 new_text = self._restore_latex(new_text, all_placeholders).strip()
+                # 닫는 } 가 별도 줄에 오도록 보장
+                # (캡션 텍스트 뒤에 주석이 있으면 }가 주석에 붙어 무시됨)
+                if not new_text.endswith('\n'):
+                    new_text += '\n'
                 # 안전성 검증
                 safe = True
                 # 1. 중괄호 균형
@@ -1214,15 +1218,27 @@ class LatexTranslator:
             logger.warning("번역할 .tex 파일이 없습니다.")
             return []
 
-        # 메인 파일에서 \input으로 참조하는 서브 파일 목록 추출
+        # \input으로 참조하는 서브 파일 목록 추출 (재귀적)
+        # 메인 파일 + 서브 파일 모두 스캔하여 중첩 \input 감지
         input_refs = set()
-        for mf in main_files:
-            content = mf.read_text(encoding='utf-8')
-            # \input{name} 또는 \include{name}
+        scan_queue = list(main_files)
+        scanned = set()
+        while scan_queue:
+            current = scan_queue.pop(0)
+            if current in scanned:
+                continue
+            scanned.add(current)
+            try:
+                content = current.read_text(encoding='utf-8')
+            except Exception:
+                continue
             for ref in re.findall(r'\\(?:input|include)\{([^}]+)\}', content):
-                # .tex 확장자 없으면 추가
                 ref_name = ref if ref.endswith('.tex') else ref + '.tex'
                 input_refs.add(ref_name)
+                # 해당 파일이 존재하면 스캔 큐에 추가 (중첩 \input 탐색)
+                ref_path = directory / ref_name
+                if ref_path.exists() and ref_path not in scanned:
+                    scan_queue.append(ref_path)
 
         # 서브 파일을 본문 번역 대상 vs 캡션만 번역 대상으로 분류
         content_sub_files = []  # \input으로 참조됨 → 본문 번역
