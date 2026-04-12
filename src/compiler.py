@@ -370,7 +370,11 @@ class LatexCompiler:
         lines = content.splitlines(keepends=True)
 
         # 고아 \item 주석 처리 + \begin{itemize} 다음 \item 누락 수정
-        list_pattern = re.compile(r'\\(begin|end)\{(itemize|enumerate|description)\}')
+        # Itemize/Enumerate 등 커스텀 리스트 환경도 포함
+        list_pattern = re.compile(
+            r'\\(begin|end)\{(itemize|enumerate|description'
+            r'|Itemize|Enumerate|compactitem|compactenum|inparaenum)\}'
+        )
         list_depth = 0
         prev_was_begin_list = False
         for idx in range(len(lines)):
