@@ -75,29 +75,40 @@ class LatexCompiler:
 
         return None
 
-    def convert_wraptables(self, tex_file: Path) -> None:
+    def convert_wrap_environments(self, tex_file: Path) -> None:
         """wraptable/wrapfigure를 일반 table/figure로 변환
 
-        wraptable은 주변 텍스트 길이에 극히 민감하여, 번역 후
+        wrap 환경은 주변 텍스트 길이에 극히 민감하여, 번역 후
         텍스트 길이가 변하면 배치가 깨지거나 사라지는 문제 발생.
-        일반 table[ht]로 변환하면 float 배치로 안정적으로 처리됨.
+        일반 table[ht]/figure[ht]로 변환하면 float 배치로 안정적으로 처리됨.
         """
         try:
             content = tex_file.read_text(encoding='utf-8')
             original = content
-            # \begin{wraptable}[N]{pos}{width} → \begin{table}[ht]
+            # \begin{wraptable}[N]{pos}{width} → \begin{table}[ht]\centering
             content = re.sub(
                 r'\\begin\{wraptable\}(\[\d+\])?\{[^}]*\}\{[^}]*\}',
                 r'\\begin{table}[ht]\\centering',
                 content
             )
             content = content.replace(r'\end{wraptable}', r'\end{table}')
+            # \begin{wrapfigure}{pos}{width} → \begin{figure}[ht]\centering
+            content = re.sub(
+                r'\\begin\{wrapfigure\}(\[\d+\])?\{[^}]*\}\{[^}]*\}',
+                r'\\begin{figure}[ht]\\centering',
+                content
+            )
+            content = content.replace(r'\end{wrapfigure}', r'\end{figure}')
             if content != original:
-                count = original.count(r'\begin{wraptable}')
+                wt = original.count(r'\begin{wraptable}')
+                wf = original.count(r'\begin{wrapfigure}')
                 tex_file.write_text(content, encoding='utf-8')
-                logger.debug(f"  {tex_file.name}: wraptable → table ({count}건)")
+                if wt:
+                    logger.debug(f"  {tex_file.name}: wraptable → table ({wt}건)")
+                if wf:
+                    logger.debug(f"  {tex_file.name}: wrapfigure → figure ({wf}건)")
         except Exception as e:
-            logger.warning(f"wraptable 변환 실패 ({tex_file.name}): {e}")
+            logger.warning(f"wrap 환경 변환 실패 ({tex_file.name}): {e}")
 
     def remove_conflicting_packages(self, tex_file: Path) -> None:
         """XeLaTeX과 충돌하는 패키지 제거
@@ -630,8 +641,8 @@ class LatexCompiler:
         for aux_file in auxiliary_files:
             if aux_file != main_tex:
                 self.remove_conflicting_packages(aux_file)
-                # wraptable→table 변환 (번역 후 텍스트 길이 변화로 배치 깨짐 방지)
-                self.convert_wraptables(aux_file)
+                # wraptable/wrapfigure→table/figure 변환
+                self.convert_wrap_environments(aux_file)
 
         # cls/sty 파일에서 xeCJK와 충돌하는 폰트 패키지를 주석 처리하고 수집
         # (xeCJK 이후에 다시 로드해야 하므로)
