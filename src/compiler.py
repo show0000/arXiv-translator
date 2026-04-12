@@ -355,6 +355,14 @@ class LatexCompiler:
                     if fixed_line != line:
                         fixed_count += 1
 
+            # === 1b. \~\ref → ~\ref 수정 ===
+            # LLM이 Fig.~\ref를 그림\~\ref로 번역하면
+            # \~는 tilde accent 명령어라 \ref를 인자로 소비하여 참조 깨짐
+            new_line = re.sub(r'\\~\\(ref|cite|eqref|cref)', r'~\\\1', fixed_line)
+            if new_line != fixed_line:
+                fixed_line = new_line
+                fixed_count += 1
+
             # === 2. \(한글) 수식 오인 수정 ===
             new_line = re.sub(r'\\[(]([가-힣])', lambda m: '(' + m.group(1), fixed_line)
             if new_line != fixed_line:
