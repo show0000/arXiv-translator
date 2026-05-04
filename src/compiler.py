@@ -201,6 +201,58 @@ class LatexCompiler:
 
         return relocated_lines
 
+    def _guard_babelfonts(self, tex_file: Path) -> int:
+        """`\\babelfont` 라인을 `\\IfFontExistsTF`로 감싸 누락 폰트 cascading 방지
+
+        ACL/Babel 다국어 데모(예: Lohit Devanagari, Noto Sans Arabic)는 해당
+        폰트가 설치되어 있지 않으면 fontspec이 nullfont로 폴백하고, 이후
+        `\\foreignlanguage{xxx}{...}` 본문이 nullfont에 OpenType 호출을 시도해
+        100+ 개의 cascading 에러를 유발한다.
+
+        `\\IfFontExistsTF`(fontspec 제공)로 감싸면 시스템/texlive 양쪽에서 폰트
+        존재를 LaTeX 시점에 확인하므로 fc-list로는 보이지 않는 texlive 폰트
+        (예: TeXGyreTermesX)도 잘못 비활성화되지 않는다. 멱등하므로 이미
+        감싸진 라인은 다시 처리하지 않는다.
+        """
+        try:
+            content = tex_file.read_text(encoding='utf-8')
+        except Exception as e:
+            logger.debug(f"babelfont 점검 스킵 ({tex_file.name}): {e}")
+            return 0
+
+        # `\babelfont[opts]{family}{font}[fontopts]` — 두 번째 `{...}`가 폰트 이름.
+        pattern = re.compile(
+            r'^([ \t]*)(\\babelfont\b(?:\[[^\]]*\])?'
+            r'\{[^{}]+\}\{([^{}]+)\}[^\n]*)$',
+            re.MULTILINE,
+        )
+        guarded = 0
+
+        def _replace(m: re.Match) -> str:
+            nonlocal guarded
+            indent, full_line, font_name = m.group(1), m.group(2), m.group(3).strip()
+            # 이미 \IfFontExistsTF 안쪽이면 건드리지 않음 (멱등성)
+            line_start = m.start()
+            preceding = content[max(0, line_start - 80):line_start]
+            if r'\IfFontExistsTF' in preceding:
+                return m.group(0)
+            guarded += 1
+            # 멀티라인 래핑: 원본 라인 끝에 `% comment`가 있어도 닫는 `}{}`가
+            # 주석 처리되지 않도록 줄바꿈으로 분리.
+            return (
+                f"{indent}\\IfFontExistsTF{{{font_name}}}{{%\n"
+                f"{indent}  {full_line}\n"
+                f"{indent}}}{{}}"
+            )
+
+        new_content = pattern.sub(_replace, content)
+        if guarded > 0:
+            tex_file.write_text(new_content, encoding='utf-8')
+            logger.info(
+                f"🔧 babelfont {guarded}개 \\IfFontExistsTF 가드 추가 ({tex_file.name})"
+            )
+        return guarded
+
     def _soften_newcommands(self, tex_file: Path) -> None:
         """보조 .tex 파일에서 \\newcommand를 \\providecommand로 변환
 
@@ -649,6 +701,11 @@ class LatexCompiler:
             main_tex, main_font, mono_font,
             extra_packages=relocated_packages,
         )
+
+        # babelfont를 \IfFontExistsTF로 감싸 누락 폰트 cascading 에러 방지
+        for tex_file in directory.rglob("*.tex"):
+            if "_original" not in tex_file.name:
+                self._guard_babelfonts(tex_file)
 
         # 컴파일
         pdf_file = self.compile_to_pdf(main_tex, output_dir)
