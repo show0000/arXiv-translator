@@ -620,8 +620,15 @@ class LatexTranslator:
         text = re.sub(r'\$\$.+?\$\$', _replace, text, flags=re.DOTALL)
         # 2. \[...\]  디스플레이 수식
         text = re.sub(r'\\\[.+?\\\]', _replace, text, flags=re.DOTALL)
-        # 3. 인라인 수식 $...$ (빈 것 제외, 줄바꿈 없는 것만)
-        text = re.sub(r'\$(?!\$)([^\$\n]+?)\$', _replace, text)
+        # 3. 인라인 수식 $...$ — 빈 것 제외. 단락 내(빈 줄 없음) 범위에서
+        # 여러 줄에 걸치는 경우도 한 토큰으로 보호한다. 원본 LaTeX이
+        # `$\alpha=\n$ then text` 처럼 줄바꿈을 사이에 두고 `$`를 페어링하는
+        # 패턴이 흔한데, 줄바꿈 제외 시 LLM이 경계를 깨뜨려 \mathrm allowed
+        # only in math mode 같은 cascading 에러를 유발한다.
+        text = re.sub(
+            r'\$(?!\$)((?:(?!\n[ \t]*\n)[^\$])+?)\$',
+            _replace, text
+        )
         # 4. 인라인 수식 \(...\) (여러 줄에 걸칠 수 있음)
         text = re.sub(r'\\\(.+?\\\)', _replace, text, flags=re.DOTALL)
         # 5. 인용/참조 명령어 — LLM이 \citep{key}를 (?)로 바꾸는 문제 방지
