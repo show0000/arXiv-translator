@@ -594,6 +594,35 @@ class LatexTranslator:
         self.content_filter = LatexContentFilter()
     _placeholder_counter = 0  # 클래스 레벨 카운터로 청크 내 고유 ID 보장
 
+    @staticmethod
+    def _normalize_crossline_math(lines: list[str]) -> list[str]:
+        """단락 내 cross-line `$...$` 수식의 내부 줄바꿈을 공백으로 정규화
+
+        LaTeX 수식 모드에서 줄바꿈은 공백과 동등하므로 의미 보존. per-line
+        translation 파이프라인이 수식을 단일 placeholder로 보호할 수 있도록
+        선처리한다. 단락 경계(빈 줄)는 cross하지 않는다.
+        """
+        text = ''.join(lines)
+        pattern = re.compile(
+            r'\$(?!\$)((?:(?!\n[ \t]*\n)[^\$])+?)\$',
+        )
+        normalized_count = 0
+
+        def _flatten(m: re.Match) -> str:
+            nonlocal normalized_count
+            full = m.group(0)
+            if '\n' not in full:
+                return full
+            normalized_count += 1
+            return full.replace('\n', ' ')
+
+        new_text = pattern.sub(_flatten, text)
+        if normalized_count > 0:
+            logger.info(
+                f"🔗 cross-line 수식 정규화: {normalized_count}개 수식의 내부 줄바꿈을 공백으로 치환"
+            )
+        return new_text.splitlines(keepends=True)
+
     @classmethod
     def _protect_latex(cls, text: str) -> tuple[str, dict[str, str]]:
         """번역 시 훼손되기 쉬운 LaTeX 구문을 플레이스홀더로 보호
@@ -990,12 +1019,18 @@ class LatexTranslator:
         with open(tex_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
-        # 백업
+        # 백업 (정규화 전 원본 보존)
         if backup:
             backup_file = tex_file.with_suffix('.tex_original')
             with open(backup_file, 'w', encoding='utf-8') as f:
                 f.writelines(lines)
             logger.debug(f"원본 백업: {backup_file}")
+
+        # 단락 내 cross-line $...$ 수식 정규화 — per-line 번역기는 줄바꿈을
+        # 가로지르는 수식 경계를 추적하지 못해 LLM이 `$`를 잃거나 추가하면
+        # math mode가 깨진다. LaTeX 수식 모드에서 줄바꿈은 공백과 의미가
+        # 동일하므로, 수식 내부 줄바꿈을 공백으로 치환해 단일 라인으로 만든다.
+        lines = self._normalize_crossline_math(lines)
 
         # 필터 초기화
         self.content_filter.reset()
