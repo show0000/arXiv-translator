@@ -3,6 +3,7 @@
 번역된 LaTeX 파일을 PDF로 컴파일합니다.
 """
 
+import json
 import logging
 import os
 import re
@@ -21,8 +22,41 @@ class LatexCompiler:
     def __init__(self, font_manager: Optional[FontManager] = None):
         self.font_manager = font_manager or FontManager()
 
+    def _toplevel_from_arxiv_readme(self, directory: Path) -> Optional[Path]:
+        """`00README.json`(arXiv 메타데이터)에서 toplevel .tex 경로 추출
+
+        arXiv source 패키지에는 다음과 같은 메타가 포함된다:
+            {"sources": [{"usage": "toplevel", "filename": "paper.tex"}, ...]}
+        toplevel로 명시된 .tex가 실제로 존재하면 그 경로를 반환한다.
+        """
+        readme = directory / "00README.json"
+        if not readme.is_file():
+            return None
+        try:
+            data = json.loads(readme.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as e:
+            logger.debug(f"00README.json 파싱 실패 — 스킵: {e}")
+            return None
+
+        for src in data.get("sources", []):
+            if src.get("usage") != "toplevel":
+                continue
+            filename = src.get("filename", "")
+            if not filename.endswith(".tex"):
+                continue
+            candidate = directory / filename
+            if candidate.is_file():
+                return candidate
+            logger.debug(f"00README.json toplevel 누락: {filename}")
+        return None
+
     def find_main_tex_file(self, directory: Path) -> Optional[Path]:
         """메인 .tex 파일 찾기
+
+        arXiv 메타데이터(`00README.json`)가 있으면 `usage="toplevel"` 항목을
+        우선 사용한다. arXiv 패키지에는 LuaLaTeX/XeLaTeX 변형 등 보조 .tex가
+        함께 포함되는 경우가 많아, `\\documentclass` 매칭만으로는 잘못된
+        파일을 메인으로 선택할 수 있다.
 
         Args:
             directory: 검색할 디렉토리
@@ -31,6 +65,14 @@ class LatexCompiler:
             메인 .tex 파일 경로 (찾지 못하면 None)
         """
         logger.info(f"메인 .tex 파일 검색: {directory}")
+
+        # 1) arXiv 00README.json의 toplevel 우선
+        toplevel_from_meta = self._toplevel_from_arxiv_readme(directory)
+        if toplevel_from_meta is not None:
+            logger.info(
+                f"✓ arXiv 메타데이터 기반 메인 파일: {toplevel_from_meta.name}"
+            )
+            return toplevel_from_meta
 
         # .tex 파일 찾기 (백업 파일 제외)
         candidate_files = [
