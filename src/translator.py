@@ -905,8 +905,21 @@ class LatexTranslator:
         # 중괄호 중첩을 처리하기 위해 간단한 파서 사용
         caption_pattern = re.compile(r'\\caption(?:\[[^\]]*\])?\{')
 
+        def _in_line_comment(text: str, pos: int) -> bool:
+            """`pos` 위치가 같은 줄의 `%` 주석 뒤에 있는지 검사
+            주석 처리된 \\caption{...}을 번역하면 본문 줄바꿈이 강제 삽입돼
+            (line 961-962) `}`가 비주석 라인으로 새어나가 brace 불균형을 만든다."""
+            line_start = text.rfind('\n', 0, pos) + 1
+            prefix = text[line_start:pos]
+            # 이스케이프된 \%는 주석이 아님
+            prefix = re.sub(r'\\%', '', prefix)
+            return '%' in prefix
+
         captions = []  # (start, end, caption_text)
         for match in caption_pattern.finditer(content):
+            # 주석 안의 \caption은 건너뜀 (렌더링되지 않으므로 번역할 가치 없음)
+            if _in_line_comment(content, match.start()):
+                continue
             start = match.end()  # { 다음 위치
             # 중괄호 균형 맞추기
             depth = 1

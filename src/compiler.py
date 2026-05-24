@@ -243,6 +243,50 @@ class LatexCompiler:
 
         return relocated_lines
 
+    def _ensure_graphicspath(self, main_tex: Path, source_root: Path) -> None:
+        """main_tex가 source_root 하위 디렉토리에 있을 때 \\graphicspath 자동 주입
+
+        arXiv 패키지 일부(예: 2507.11200)는 toplevel .tex가 `Templates/` 같은
+        하위 디렉토리에 있고 이미지/리소스는 source root에 위치한다. xelatex은
+        cwd=tex.parent에서 실행되므로 `\\includegraphics{vlm.png}`가 부모의
+        이미지를 찾지 못해 graphics 패키지가 Division by 0과 cascading "Too many
+        }'s" 에러를 일으킨다. `\\graphicspath`로 부모를 검색 경로에 추가한다.
+        """
+        if main_tex.parent.resolve() == source_root.resolve():
+            return
+
+        content = main_tex.read_text(encoding='utf-8')
+        # graphicx/graphics가 없으면 \graphicspath는 미정의 명령어
+        if r'\usepackage{graphicx}' not in content and r'\usepackage{graphics}' not in content:
+            return
+
+        marker = '% [auto-added] graphicspath for source root'
+        if marker in content:
+            return  # 멱등성
+
+        try:
+            rel = os.path.relpath(source_root, main_tex.parent)
+        except ValueError:
+            return
+        rel_path = rel.replace(os.sep, '/').rstrip('/') + '/'
+
+        directive = f'\n{marker}\n\\graphicspath{{{{{rel_path}}}{{./}}}}\n'
+
+        # \begin{document} 직전에 삽입 — graphicx 로드 이후가 보장됨
+        # (replacement에 `\g` 등이 들어가면 re가 backref로 해석하므로 lambda 사용)
+        new_content, n = re.subn(
+            r'\\begin\{document\}',
+            lambda m: directive + m.group(0),
+            content,
+            count=1,
+        )
+        if n == 0:
+            logger.warning("⚠ \\begin{document} 미발견 — \\graphicspath 미삽입")
+            return
+
+        main_tex.write_text(new_content, encoding='utf-8')
+        logger.info(f"✓ \\graphicspath 추가: {rel_path}")
+
     def _guard_babelfonts(self, tex_file: Path) -> int:
         """`\\babelfont` 라인을 `\\IfFontExistsTF`로 감싸 누락 폰트 cascading 방지
 
@@ -512,6 +556,30 @@ class LatexCompiler:
 
         content = ''.join(lines)
 
+        # === 3b. 주석 블록에서 새어나간 orphan `}` 자동 주석 처리 ===
+        # translator.translate_captions가 `% \caption{...}`를 multi-line으로
+        # 풀어 `}`만 비주석 라인으로 남기는 패턴 복구. (root cause는 translator
+        # 쪽에서 수정되었으나 이미 번역된 파일을 위한 방어선)
+        lines = content.splitlines(keepends=True)
+        for idx, line in enumerate(lines):
+            if line.strip() != '}':
+                continue
+            # 직전 비공백 라인 탐색
+            j = idx - 1
+            while j >= 0 and not lines[j].strip():
+                j -= 1
+            if j < 0:
+                continue
+            prev = lines[j]
+            if not prev.lstrip().startswith('%'):
+                continue
+            # prev에 unmatched `{` 있으면 `}`는 주석 밖으로 새어나간 것
+            prev_clean = re.sub(r'\\[{}]', '', prev)
+            if prev_clean.count('{') > prev_clean.count('}'):
+                lines[idx] = '% ' + line
+                fixed_count += 1
+        content = ''.join(lines)
+
         # === 4. 전체 begin/end 균형 검증 — 불균형 환경을 원본 블록으로 복원 ===
         env_pattern = re.compile(r'\\(begin|end)\{([^}]+)\}')
         stack = []
@@ -748,6 +816,9 @@ class LatexCompiler:
         for tex_file in directory.rglob("*.tex"):
             if "_original" not in tex_file.name:
                 self._guard_babelfonts(tex_file)
+
+        # main_tex가 하위 디렉토리에 있을 때 \graphicspath로 source root 추가
+        self._ensure_graphicspath(main_tex, directory)
 
         # 컴파일
         pdf_file = self.compile_to_pdf(main_tex, output_dir)
