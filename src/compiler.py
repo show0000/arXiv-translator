@@ -223,10 +223,18 @@ class LatexCompiler:
                             }
                             if pkg_names & self.FONT_PACKAGES_TO_RELOCATE:
                                 opts = m.group(1) or ''
-                                # \usepackage 형태로 재삽입할 라인 생성
                                 use_line = f"\\usepackage{opts}{{{m.group(2)}}}\n"
                                 relocated_lines.append(use_line)
-                                new_lines.append('% [relocated for xeCJK] ' + line)
+                                # 라인 전체를 주석 처리하면 \def 본문 등
+                                # 매크로 구조의 닫는 }가 사라져 컴파일 에러 발생.
+                                # \RequirePackage{pkg} 부분만 \relax로 교체하여
+                                # 매크로 구조를 보존한다.
+                                neutralized = (
+                                    line[:m.start()]
+                                    + '\\relax'
+                                    + line[m.end():]
+                                )
+                                new_lines.append(neutralized)
                                 logger.info(
                                     f"  폰트 패키지 재배치: {aux_file.name} → "
                                     f"{m.group(2)}"
