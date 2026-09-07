@@ -261,6 +261,7 @@ class FontManager:
     BoldItalicFeatures={{FakeBold=1.5, FakeSlant=0.2}}
 ]
 \\xeCJKsetup{{CJKspace=true}}
+\\ifdefined\\Bbbk\\let\\Bbbk\\relax\\fi
 """
 
         logger.info(f"LaTeX 폰트 설정 생성 완료 (main: {main_font}, mono: {mono_font})")
